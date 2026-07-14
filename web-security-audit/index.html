@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Web 应用安全审计与加固实践报告 — 8 项安全漏洞分析与修复，涵盖 SQL 注入、CSRF、密码安全等">
+  <meta name="keywords" content="Flask, SQL注入, 安全审计, CSRF, OWASP, Burp Suite, Web安全">
+  <meta property="og:title" content="Web 安全审计与加固报告">
+  <meta property="og:description" content="从功能开发到安全加固全流程，8 个漏洞 + 6 种安全机制">
+  <title>Web 安全审计与加固报告 | Flask 全流程</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+</head>
+<body>
+
+  <!-- ===== 导航栏 ===== -->
+  <nav class="navbar">
+    <a href="../" class="nav-brand"><span class="brand-icon">🛡️</span> 安全审计</a>
+    <button class="nav-toggle">☰</button>
+    <ul class="nav-links">
+      <li><a href="#overview">项目概述</a></li>
+      <li><a href="#vulns">漏洞分析</a></li>
+      <li><a href="#sqli-deep">SQL 深度</a></li>
+      <li><a href="#summary">总结</a></li>
+      <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+    </ul>
+  </nav>
+
+  <!-- ===== 封面 ===== -->
+  <header class="hero">
+    <div class="hero-particles"></div>
+    <div class="hero-badge">安 全 审 计 与 加 固 报 告</div>
+    <h1>Web 应用安全审计<br>与加固实践报告</h1>
+    <p class="hero-sub">Flask 用户管理系统 — 从功能开发到安全加固全流程</p>
+    <div class="hero-divider"></div>
+    <div class="hero-meta">
+      <strong>实验环境：</strong>Kali Linux · Flask 3.1 · SQLite 3 · Burp Suite CE<br>
+      <strong>靶机地址：</strong>http://192.168.14.129:5000 &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-07
+    </div>
+    <div class="hero-scroll">↓ 向下滚动</div>
+  </header>
+
+  <main class="container">
+
+    <!-- ===== 一、项目概述 ===== -->
+    <section id="overview" class="section">
+      <div class="section-header">
+        <h2>一、项目概述与功能说明</h2>
+        <p>Project Overview &amp; Functionality</p>
+      </div>
+
+      <h3>1.1 项目背景</h3>
+      <p>本项目是一个基于 Python Flask 框架的<strong>用户信息管理平台</strong>，分两个阶段完成：基础登录功能（第一阶段）和注册 + 搜索功能（第二阶段新增）。本次安全审计在两个阶段全部完成后进行，确保所有功能均经过安全加固。</p>
+
+      <h3>1.2 系统功能清单</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>功能</th><th>路由</th><th>方法</th><th>说明</th><th>阶段</th></tr></thead>
+          <tbody>
+            <tr><td>首页</td><td><code>/</code></td><td>GET</td><td>展示当前登录用户信息</td><td>第一阶段</td></tr>
+            <tr><td>登录</td><td><code>/login</code></td><td>GET/POST</td><td>用户名+密码登录，含防爆破</td><td>第一阶段</td></tr>
+            <tr><td>注册</td><td><code>/register</code></td><td>GET/POST</td><td>新用户自主注册</td><td><strong>第二阶段新增</strong></td></tr>
+            <tr><td>搜索</td><td><code>/search</code></td><td>GET</td><td>按用户名/邮箱搜索用户</td><td><strong>第二阶段新增</strong></td></tr>
+            <tr><td>退出</td><td><code>/logout</code></td><td>GET</td><td>清除 Session 退出登录</td><td>第一阶段</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>1.3 系统架构图</h3>
+      <div class="arch-box">
+                         用户访问入口<br>
+                    http://192.168.14.129:5000<br>
+                              │<br>
+                              ▼<br>
+    ┌─────────────────────────────────────────────────────┐<br>
+    │                  Flask 路由层                        │<br>
+    │  GET  /        首页展示                              │<br>
+    │  POST /login   登录验证     GET  /logout  退出登录    │<br>
+    │  POST /register 注册（★新增）                         │<br>
+    │  GET  /search   搜索（★新增）                         │<br>
+    └──────────────────────┬──────────────────────────────┘<br>
+                           │<br>
+          ┌──────────────┬─┴─┬──────────────┐<br>
+          ▼              ▼   ▼              ▼<br>
+    ┌──────────┐  ┌──────────────┐  ┌──────────┐<br>
+    │ USERS 字典│  │  SQLite      │  │ Session  │<br>
+    │ (登录用)  │  │  users.db    │  │ Cookie   │<br>
+    │ 哈希密码  │  │ 注册+搜索    │  │          │<br>
+    └──────────┘  └──────────────┘  └──────────┘
+      </div>
+
+      <!-- 统计卡片 -->
+      <div class="summary-stats">
+        <div class="stat-card stat-danger"><div class="stat-num">8</div><div class="stat-label">发现漏洞</div></div>
+        <div class="stat-card stat-success"><div class="stat-num">8</div><div class="stat-label">已修复</div></div>
+        <div class="stat-card"><div class="stat-num">~110</div><div class="stat-label">新增安全代码行</div></div>
+        <div class="stat-card stat-warn"><div class="stat-num">6</div><div class="stat-label">安全机制</div></div>
+      </div>
+    </section>
+
+    <!-- ===== 二、审计方法论 ===== -->
+    <section class="section">
+      <div class="section-header">
+        <h2>二、安全审计方法论</h2>
+        <p>Security Audit Methodology</p>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>方法</th><th>工具</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>代码审计</td><td>人工审查 <code>app.py</code> + 模板文件</td><td>逐行检查所有用户输入点</td></tr>
+            <tr><td>动态测试</td><td>Burp Suite + curl</td><td>发送恶意 payload 观察响应</td></tr>
+            <tr><td>黑盒测试</td><td>模拟攻击者视角</td><td>不查看源码，仅通过接口测试</td></tr>
+            <tr><td>白盒测试</td><td>结合源码分析</td><td>定位漏洞代码的确切位置</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>攻击面总览</h3>
+      <div class="arch-box">
+攻击面分类                发现数量    严重程度分布
+──────────────────────────────────────────────────
+注入类漏洞（SQL 注入）         2        严重 x2
+认证授权类（CSRF+未授权）      2        中危 x2
+数据保护类（明文+信息泄露）    2        高危+中危
+配置类漏洞（Cookie 安全）      1        中危
+输入校验类（无长度限制）       1        低危
+──────────────────────────────────────────────────
+总计                         8       1严重+1高危+5中危+1低危
+      </div>
+
+      <h3>漏洞严重程度分级</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>等级</th><th>分值</th><th>定义</th><th>本次数量</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag tag-critical">严重 Critical</span></td><td>9.0-10.0</td><td>可导致完全的数据泄露或系统接管</td><td>2</td></tr>
+            <tr><td><span class="tag tag-high">高危 High</span></td><td>7.0-8.9</td><td>可导致敏感数据泄露</td><td>1</td></tr>
+            <tr><td><span class="tag tag-medium">中危 Medium</span></td><td>4.0-6.9</td><td>在特定条件下可被利用</td><td>4</td></tr>
+            <tr><td><span class="tag tag-low">低危 Low</span></td><td>1.0-3.9</td><td>单独利用难度大或影响有限</td><td>1</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 三~十、漏洞分析 ===== -->
+    <section id="vulns" class="section">
+      <div class="section-header">
+        <h2>三 — 十、漏洞分析与修复</h2>
+        <p>Vulnerability Analysis &amp; Remediation</p>
+      </div>
+
+      <!-- === 漏洞 1 === -->
+      <div class="vuln-card sev-critical">
+        <div class="vuln-header"><span class="vuln-num">1</span><h3>SQL 注入 — 搜索功能</h3><span class="tag tag-critical">严重 · CVSS 9.8</span></div>
+        <p><strong>CWE-89 · 搜索接口 <code>GET /search?keyword=xxx</code></strong></p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+          <pre>keyword = request.args.get("keyword", "")
+sql = f"SELECT id, username, email, phone FROM users \
+        WHERE username LIKE '%{keyword}%' OR email LIKE '%{keyword}%'"
+c.execute(sql)</pre>
+        </div>
+        <p><strong>攻击复现：</strong>输入 <code>' OR '1'='1</code> 窃取全部用户数据；<code>' UNION SELECT 1,2,3,4--</code> 注入伪造数据。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>f"WHERE username LIKE '%{k}%'"</code></div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>"WHERE username LIKE ?"</code> 参数绑定</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 2 === -->
+      <div class="vuln-card sev-critical">
+        <div class="vuln-header"><span class="vuln-num">2</span><h3>SQL 注入 — 注册功能</h3><span class="tag tag-critical">严重 · CVSS 9.8</span></div>
+        <p><strong>CWE-89 · 注册接口 <code>POST /register</code>（4 个字段均可注入）</strong></p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+          <pre>sql = f"INSERT INTO users (username, password, email, phone) \
+        VALUES ('{username}', '{password}', '{email}', '{phone}')"
+c.execute(sql)</pre>
+        </div>
+        <p><strong>攻击复现：</strong>用户名注入 <code>hacker', 'pass', 'h@x.com', '123')--</code> 创建非法用户</p>
+        <div class="vuln-toggle"><button class="vuln-expand-btn">查看详情 ▾</button></div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>更严重攻击场景：</strong></p>
+            <ul>
+              <li><code>'; DROP TABLE users; --</code> — 删除整个 users 表</li>
+              <li><code>'; UPDATE users SET password='hacked' WHERE username='admin'; --</code> — 修改管理员密码</li>
+            </ul>
+            <p><strong>修复：</strong>参数化查询 + 输入验证 + 密码哈希存储 + 格式校验</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 3 === -->
+      <div class="vuln-card sev-high">
+        <div class="vuln-header"><span class="vuln-num">3</span><h3>密码明文存储</h3><span class="tag tag-high">高危 · CVSS 7.5</span></div>
+        <p><strong>CWE-312 · SQLite 数据库 <code>data/users.db</code></strong></p>
+        <p>直接用 <code>sqlite3 data/users.db "SELECT password FROM users"</code> 即可看到 <code>admin123</code>、<code>alice2025</code> 等明文密码。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>明文存储 <code>"admin123"</code></div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>generate_password_hash()</code> 哈希存储</div>
+        </div>
+        <p>算法：<strong>Werkzeug scrypt</strong>（内存硬哈希），穷举 8 位密码约需 <strong>4 年</strong>（MD5 仅需 1 小时）。</p>
+      </div>
+
+      <!-- === 漏洞 4 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">4</span><h3>错误信息泄漏数据库结构</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-209 · 注册接口 <code>POST /register</code></strong></p>
+        <p>修复前：<code>error = f"注册失败: {e}"</code> 暴露 <code>UNIQUE constraint failed: users.username</code>，攻击者可推断数据库类型为 SQLite、存在 users 表、username 有 UNIQUE 约束、admin 是有效用户。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>f"注册失败: {e}"</code></div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>"该用户名已被注册"</code> 统一提示</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 5 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">5</span><h3>搜索接口未授权访问</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-862 · 搜索接口 <code>GET /search</code></strong></p>
+        <p>修复前搜索接口无登录验证，未登录用户也可触发 SQL 查询（时间盲注风险）。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无认证装饰器</div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>@login_required</code> 装饰器</div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 6 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">6</span><h3>跨站请求伪造 CSRF</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-352 · 登录 <code>POST /login</code> + 注册 <code>POST /register</code></strong></p>
+        <p>表单无 CSRF Token，攻击者可在恶意页面构造隐藏表单，受害者访问时自动提交请求。</p>
+        <div class="info-box"><strong>修复：</strong> <code>secrets.token_hex(16)</code> 生成随机 Token 存入 Session，表单添加 <code>&lt;input type="hidden" name="csrf_token" value="{{ csrf_token }}"&gt;</code>，提交时校验。</div>
+      </div>
+
+      <!-- === 漏洞 7 === -->
+      <div class="vuln-card sev-medium">
+        <div class="vuln-header"><span class="vuln-num">7</span><h3>Session Cookie 安全配置缺失</h3><span class="tag tag-medium">中危</span></div>
+        <p><strong>CWE-1004 · 全部页面</strong></p>
+        <p>修复前 Cookie 仅有 <code>Path=/</code>，缺少 <code>HttpOnly</code>、<code>SameSite</code>、<code>Secure</code> 安全属性。</p>
+        <div class="fix-compare">
+          <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>Set-Cookie: session=...; Path=/</code></div>
+          <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>HttpOnly; Path=/; SameSite=Lax</code></div>
+        </div>
+      </div>
+
+      <!-- === 漏洞 8 === -->
+      <div class="vuln-card sev-low">
+        <div class="vuln-header"><span class="vuln-num">8</span><h3>输入无长度限制</h3><span class="tag tag-low">低危</span></div>
+        <p><strong>全部输入点</strong></p>
+        <p>修复前所有输入点均无长度和格式校验，存在数据库溢出和资源消耗风险。</p>
+        <div class="vuln-toggle"><button class="vuln-expand-btn">查看详情 ▾</button></div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>修复：</strong></p>
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+              <pre>def validate_input(data, max_len=50):
+    if not data or not data.strip():
+        return False, "输入不能为空"
+    if len(data) > max_len:
+        return False, f"输入过长（最多{max_len}字符）"
+    return True, ""</pre>
+            </div>
+            <p>前端同步限制：<code>&lt;input maxlength="30"&gt;</code></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 十一、SQL 注入深度解析 ===== -->
+    <section id="sqli-deep" class="section">
+      <div class="section-header">
+        <h2>十一、SQL 注入防护深度解析</h2>
+        <p>SQL Injection Defense — Deep Dive</p>
+      </div>
+
+      <h3>11.1 注入成功的三个条件</h3>
+      <div class="arch-box">
+条件1：程序使用字符串拼接构建 SQL（f-string / %s / +）<br>
+条件2：用户输入包含 SQL 元字符（主要是单引号 '）<br>
+条件3：拼接后的 SQL 语法合法（攻击者构造出语法正确的语句）
+      </div>
+
+      <h3>11.2 参数化查询执行流程</h3>
+      <div class="burp-panel">
+步骤1：应用发送 SQL 模板 → "SELECT * FROM users WHERE username LIKE ?"<br>
+步骤2：数据库解析模板，生成查询执行计划（此时 SQL 结构已固定！）<br>
+步骤3：应用单独发送参数值 → "%' OR '1'='1%"<br>
+步骤4：数据库将参数填入执行计划，但不会重新解析为 SQL 代码<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;实际效果：LIKE 匹配文本 "%' OR '1'='1%" — 这是字符串内容，不是 SQL 指令！
+      </div>
+
+      <h3>11.3 f-string 拼接 vs 参数化查询</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>步骤</th><th>f-string 拼接</th><th>参数化查询</th></tr></thead>
+          <tbody>
+            <tr><td>第1步</td><td><code>f"WHERE name = '{input}'"</code> — 代码数据混合</td><td><code>"WHERE name = ?"</code> — 模板数据分离</td></tr>
+            <tr><td>第2步</td><td>输入 <code>' OR '1'='1</code> 成为 SQL 代码</td><td>输入被当作参数值</td></tr>
+            <tr><td>第3步</td><td>生成 <code>WHERE name = '' OR '1'='1'</code></td><td>数据库：这是参数，不是代码</td></tr>
+            <tr><td><strong>结果</strong></td><td><strong>⚠️ 注入成功</strong></td><td><strong>✅ 注入失败</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>11.4 各编程语言参数化写法</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>语言</th><th>驱动</th><th>参数化（安全）</th><th>危险写法</th></tr></thead>
+          <tbody>
+            <tr><td>Python</td><td>sqlite3</td><td><code>c.execute("SELECT ?", (val,))</code></td><td><code>f"SELECT '{val}'"</code></td></tr>
+            <tr><td>Python</td><td>psycopg2</td><td><code>c.execute("SELECT %s", (val,))</code></td><td><code>f"SELECT '{val}'"</code></td></tr>
+            <tr><td>Java</td><td>JDBC</td><td><code>pstmt.setString(1, val)</code></td><td><code>"SELECT '" + val + "'"</code></td></tr>
+            <tr><td>PHP</td><td>PDO</td><td><code>$stmt->execute([':v'=>$val])</code></td><td><code>"SELECT '$val'"</code></td></tr>
+            <tr><td>Node.js</td><td>mysql2</td><td><code>conn.query("SELECT ?", [val])</code></td><td>\`SELECT '${val}'\`</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>11.5 多层防护体系</h3>
+      <div class="arch-box">
+                    SQL 注入防护体系
+
+第一层（最有效）：参数化查询 / 预编译语句 — 几乎 100% 防御
+  原理：数据与代码在数据库层面分离
+
+第二层（辅助）：输入验证与过滤 — 作为第一层的补充
+  限制：容易被绕过（编码、大小写、注释符等）
+
+第三层（辅助）：最小权限原则
+  效果：即使注入成功，也能限制损害范围
+
+第四层（辅助）：Web 应用防火墙 WAF — 最后一道防线
+      </div>
+    </section>
+
+    <!-- ===== 十二、总结 ===== -->
+    <section id="summary" class="section">
+      <div class="section-header">
+        <h2>十二、全部修复方案总结</h2>
+        <p>Remediation Summary</p>
+      </div>
+
+      <h3>修复前后对比总表</h3>
+      <div class="table-wrapper">
+        <table class="compare-table">
+          <thead><tr><th>#</th><th>漏洞名称</th><th>严重</th><th>修复前</th><th>修复后</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>SQL 注入（搜索）</td><td><span class="tag tag-critical">严重</span></td><td><code>f"LIKE '%{k}%'"</code></td><td><code>"LIKE ?"</code> 参数绑定</td></tr>
+            <tr><td>2</td><td>SQL 注入（注册）</td><td><span class="tag tag-critical">严重</span></td><td><code>f"VALUES ('{v}')"</code></td><td><code>"VALUES (?)"</code> 参数绑定</td></tr>
+            <tr><td>3</td><td>密码明文存储</td><td><span class="tag tag-high">高危</span></td><td><code>INSERT ('admin123')</code></td><td><code>generate_password_hash()</code></td></tr>
+            <tr><td>4</td><td>错误信息泄露</td><td><span class="tag tag-medium">中危</span></td><td><code>f"注册失败: {e}"</code></td><td>统一提示</td></tr>
+            <tr><td>5</td><td>未授权访问</td><td><span class="tag tag-medium">中危</span></td><td>搜索接口无认证</td><td><code>@login_required</code></td></tr>
+            <tr><td>6</td><td>CSRF 无防护</td><td><span class="tag tag-medium">中危</span></td><td>表单无 Token</td><td><code>secrets.token_hex(16)</code></td></tr>
+            <tr><td>7</td><td>Cookie 安全缺失</td><td><span class="tag tag-medium">中危</span></td><td>仅 <code>Path=/</code></td><td><code>HttpOnly; SameSite=Lax</code></td></tr>
+            <tr><td>8</td><td>输入无限制</td><td><span class="tag tag-low">低危</span></td><td>无校验</td><td><code>validate_input()</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>安全开发检查清单</h3>
+      <div class="checklist-box">
+<span class="checked">[✓]</span> 所有 SQL 操作使用参数化查询（? 占位符）<br>
+<span class="checked">[✓]</span> 完全禁止 f-string / % 拼接 / + 拼接 SQL<br>
+<span class="checked">[✓]</span> LIKE 子句中仍使用占位符<br>
+<span class="checked">[✓]</span> 错误信息不暴露 SQL 语法或数据库结构<br>
+<span class="checked">[✓]</span> 所有敏感接口有登录验证<br>
+<span class="checked">[✓]</span> 密码使用强哈希算法（scrypt）<br>
+<span class="checked">[✓]</span> 登录有防爆破机制<br>
+<span class="checked">[✓]</span> Session 配置 HttpOnly + SameSite<br>
+<span class="checked">[✓]</span> 所有用户输入有长度和格式校验<br>
+<span class="checked">[✓]</span> CSRF Token 保护所有 POST 请求<br>
+<span class="checked">[✓]</span> Debug 模式已关闭
+      </div>
+
+      <h3>核心收获</h3>
+      <ul class="principle-list">
+        <li><strong>不信任：</strong>永远不要信任用户的任何输入</li>
+        <li><strong>不拼接：</strong>永远不要用字符串拼接构建 SQL</li>
+        <li><strong>不泄露：</strong>永远不要在错误信息中暴露内部细节</li>
+      </ul>
+
+      <blockquote>
+        <p><strong>安全不是一种功能，而是一种属性。</strong> 它不是在开发完成后"加"上去的，而是在每一行代码中"设计"出来的。</p>
+        <p>通过本次实验，从一个简单的 Flask 登录系统出发，经历了功能扩展（注册+搜索）、漏洞挖掘（8个漏洞）、安全加固（6种防护机制）的完整流程，建立了从"攻击者视角"思考问题、从"防御者视角"编码实践的双重视角。</p>
+      </blockquote>
+    </section>
+
+    <!-- ===== 参考资料 ===== -->
+    <section class="section">
+      <div class="section-header">
+        <h2>参考资料</h2>
+        <p>References</p>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th style="width:6%">#</th><th>资料名称</th><th>来源</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>OWASP Top 10 — 2021</td><td><a href="https://owasp.org/www-project-top-ten/" target="_blank">owasp.org</a></td></tr>
+            <tr><td>2</td><td>OWASP SQL Injection Prevention Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+            <tr><td>3</td><td>OWASP CSRF Prevention Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+            <tr><td>4</td><td>PortSwigger — SQL Injection</td><td><a href="https://portswigger.net/web-security/sql-injection" target="_blank">portswigger.net</a></td></tr>
+            <tr><td>5</td><td>Werkzeug 密码哈希文档</td><td><a href="https://werkzeug.palletsprojects.com/en/stable/utils/#module-werkzeug.security" target="_blank">werkzeug.palletsprojects.com</a></td></tr>
+            <tr><td>6</td><td>Flask Session Cookie 配置</td><td><a href="https://flask.palletsprojects.com/en/stable/config/" target="_blank">flask.palletsprojects.com</a></td></tr>
+            <tr><td>7</td><td>CWE-89: SQL Injection</td><td><a href="https://cwe.mitre.org/data/definitions/89.html" target="_blank">cwe.mitre.org</a></td></tr>
+            <tr><td>8</td><td>CWE-352: Cross-Site Request Forgery</td><td><a href="https://cwe.mitre.org/data/definitions/352.html" target="_blank">cwe.mitre.org</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===== Footer ===== -->
+  <footer class="footer">
+    <div class="container">
+      <p><strong>报告人：</strong>________________ &nbsp;|&nbsp; <strong>指导教师：</strong>________________</p>
+      <p><strong>报告日期：</strong>2026-07-07 &nbsp;|&nbsp; <strong>靶机地址：</strong>http://192.168.14.129:5000</p>
+      <p><strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+      <p style="margin-top:0.8rem;font-size:0.72rem;color:rgba(255,255,255,0.3);">🛡️ Web 安全审计与加固报告 &copy; 2026</p>
+    </div>
+  </footer>
+
+  <button class="back-to-top">↑</button>
+  <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Flask 用户管理系统密码安全漏洞分析与修复 — 完整安全审计项目报告 / Password Security Audit Report for Flask User Management System">
+  <meta name="keywords" content="Flask, 密码安全, 安全审计, OWASP, Burp Suite, Python, Web安全">
+  <meta name="author" content="Zhaoyang-haha">
+  <meta property="og:title" content="密码安全修复报告 — Flask 安全审计">
+  <meta property="og:description" content="7 项安全漏洞识别与修复，涵盖密码哈希、爆破防护、会话安全等">
+  <meta property="og:type" content="website">
+  <title>密码安全修复报告 | Flask 安全审计</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔒</text></svg>">
+</head>
+<body>
+
+  <!-- ======================================================
+       导航栏
+       ====================================================== -->
+  <nav class="navbar" role="navigation" aria-label="主导航">
+    <a href="#" class="nav-brand">
+      <span class="brand-icon">🔒</span>
+      Flask 安全审计
+    </a>
+    <button class="nav-toggle" aria-label="切换导航菜单">☰</button>
+    <ul class="nav-links">
+      <li><a href="#overview">项目概述</a></li>
+      <li><a href="#vulnerabilities">漏洞分析</a></li>
+      <li><a href="#burpsuite">抓包验证</a></li>
+      <li><a href="#fixes">修复方案</a></li>
+      <li><a href="#comparison">前后对比</a></li>
+      <li><a href="#testing">测试验证</a></li>
+      <li><a href="#summary">总结</a></li>
+      <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+    </ul>
+  </nav>
+
+  <!-- ======================================================
+       英雄区 / 封面
+       ====================================================== -->
+  <header class="hero" id="top">
+    <div class="hero-particles"></div>
+    <div class="hero-badge">安 全 审 计 报 告</div>
+    <h1>密码安全修复报告</h1>
+    <p class="hero-sub">Flask 用户管理系统 — 安全漏洞分析与修复</p>
+    <div class="hero-divider"></div>
+    <div class="hero-meta">
+      <strong>测试环境：</strong>Kali Linux 2026.1 · Burp Suite Community<br>
+      <strong>部署地址：</strong>http://192.168.14.129:5000<br>
+      <strong>报告日期：</strong>2026-07-07
+    </div>
+    <div class="hero-scroll">↓ 向下滚动</div>
+  </header>
+
+  <!-- ======================================================
+       主内容
+       ====================================================== -->
+  <main class="container">
+
+    <!-- ============ 一、项目概述 ============ -->
+    <section id="overview" class="section">
+      <div class="section-header">
+        <h2>一、项目概述</h2>
+        <p>Project Overview</p>
+      </div>
+
+      <h3>1.1 项目简介</h3>
+      <p>本项目是一个基于 Python Flask 框架的简易用户信息管理平台，包含登录、用户信息展示、登出等基本功能。本次作业的目标是：<strong>识别代码中的密码安全漏洞，并逐一修复</strong>。报告从安全审计的视角出发，对原始代码进行了全面的安全审查，发现并修复了 <strong>7 项</strong> 安全漏洞，并借助 Burp Suite 工具进行了抓包验证。</p>
+
+      <!-- 统计卡片 -->
+      <div class="summary-stats">
+        <div class="stat-card stat-danger">
+          <div class="stat-num">7</div>
+          <div class="stat-label">发现漏洞</div>
+        </div>
+        <div class="stat-card stat-success">
+          <div class="stat-num">7</div>
+          <div class="stat-label">已修复</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">5</div>
+          <div class="stat-label">安全原则</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">3</div>
+          <div class="stat-label">遗留项</div>
+        </div>
+      </div>
+
+      <h3>1.2 项目结构</h3>
+      <div class="file-tree">
+        <span class="dir">flask_user_app/</span><br>
+        ├── <span class="file">app.py</span>                 <span class="comment"># Flask 主应用（路由 + 逻辑）</span><br>
+        ├── <span class="dir">templates/</span><br>
+        │   ├── <span class="file">base.html</span>          <span class="comment"># 基础模板</span><br>
+        │   ├── <span class="file">index.html</span>         <span class="comment"># 首页（用户信息展示）</span><br>
+        │   └── <span class="file">login.html</span>         <span class="comment"># 登录页</span><br>
+        └── <span class="dir">static/</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">css/</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">style.css</span>      <span class="comment"># 样式文件</span>
+      </div>
+
+      <div class="info-box">
+        <strong>📋 架构说明</strong>
+        该项目采用经典的 Flask 三层架构：路由逻辑集中在 <code>app.py</code>，页面模板统一放置在 <code>templates/</code> 目录，静态资源位于 <code>static/</code> 目录。结构简洁，便于进行安全审计。
+      </div>
+    </section>
+
+    <!-- ============ 二、环境与工具 ============ -->
+    <section class="section">
+      <div class="section-header">
+        <h2>二、环境与工具</h2>
+        <p>Environment &amp; Tools</p>
+      </div>
+
+      <p>本次安全审计工作部署在以下实验环境中进行，所有测试均在受控的内网环境下完成：</p>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th style="width:25%">项目</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>操作系统</strong></td><td>Kali Linux 2026.1（远程 SSH）</td></tr>
+            <tr><td><strong>Web 框架</strong></td><td>Python Flask（Werkzeug WSGI）</td></tr>
+            <tr><td><strong>安全测试工具</strong></td><td>Burp Suite Community Edition</td></tr>
+            <tr><td><strong>抓包方式</strong></td><td>HTTP 代理拦截（127.0.0.1:8080）</td></tr>
+            <tr><td><strong>部署地址</strong></td><td><code>http://192.168.14.129:5000</code></td></tr>
+            <tr><td><strong>测试方法</strong></td><td>源代码审计 + 动态抓包验证</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="warning-box">
+        <strong>⚠️ 免责声明</strong>
+        本次安全测试仅在私有内网环境中进行，所有操作均针对本机部署的测试应用，未对任何第三方系统造成影响。
+      </div>
+    </section>
+
+    <!-- ============ 三、原始漏洞分析 ============ -->
+    <section id="vulnerabilities" class="section">
+      <div class="section-header">
+        <h2>三、原始漏洞分析</h2>
+        <p>Vulnerability Analysis</p>
+      </div>
+
+      <p>通过对项目源代码的逐行审计，我们发现了以下 <strong>7 项</strong> 安全漏洞，按照严重程度排列如下：</p>
+
+      <!-- 漏洞 1 -->
+      <div class="vuln-card severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-num">1</span>
+          <h3>密码明文存储</h3>
+          <span class="tag tag-critical">严重</span>
+        </div>
+        <p><strong>问题代码（<code>app.py</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre><span class="keyword">USERS</span> = {
+    <span class="string">"admin"</span>: {
+        <span class="string">"username"</span>: <span class="string">"admin"</span>,
+        <span class="string">"password"</span>: <span class="string">"admin123"</span>,      <span class="comment"># ← 明文存储！</span>
+        <span class="string">"role"</span>: <span class="string">"admin"</span>,
+        <span class="string">"email"</span>: <span class="string">"admin@example.com"</span>,
+        <span class="string">"phone"</span>: <span class="string">"13800138000"</span>,
+        <span class="string">"balance"</span>: <span class="number">99999</span>
+    },
+    <span class="string">"alice"</span>: {
+        <span class="string">"username"</span>: <span class="string">"alice"</span>,
+        <span class="string">"password"</span>: <span class="string">"alice2025"</span>,     <span class="comment"># ← 明文存储！</span>
+        <span class="comment"># ...</span>
+    }
+}</pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> 如果数据库文件被泄露（或攻击者通过其他漏洞获取了 <code>USERS</code> 字典的内容），所有用户的密码将以可读形式直接暴露。这是 Web 应用安全中最基础也是最严重的违规行为之一，违反了 OWASP Top 10 中关于 "敏感数据暴露"（A02:2021 – Cryptographic Failures）的安全要求。</p>
+            <p><strong>验证方式：</strong> 直接查看源代码即可看到所有账号的明文密码。</p>
+            <p><strong>OWASP 映射：</strong> <span class="tag tag-critical">A02:2021 – Cryptographic Failures</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 2 -->
+      <div class="vuln-card severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-num">2</span>
+          <h3>密码明文比对</h3>
+          <span class="tag tag-critical">严重</span>
+        </div>
+        <p><strong>问题代码（<code>app.py</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre><span class="keyword">if</span> username <span class="keyword">in</span> USERS <span class="keyword">and</span> USERS[username][<span class="string">"password"</span>] == password:</pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> 使用 <code>==</code> 直接进行字符串比对，存在以下问题：</p>
+            <ul>
+              <li>意味着密码必须明文存储才能比对，与漏洞 1 形成耦合风险</li>
+              <li>无法防御 <strong>时序攻击</strong>（Timing Attack）——攻击者可以通过响应时间的细微差异逐字符猜测密码</li>
+              <li>不兼容哈希存储方案，无法迁移到安全的密码存储方式</li>
+            </ul>
+            <p><strong>推荐做法：</strong> 使用 <code>check_password_hash()</code> 进行常量时间比较（Constant-Time Comparison）。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 3 -->
+      <div class="vuln-card severity-high">
+        <div class="vuln-header">
+          <span class="vuln-num">3</span>
+          <h3>密码显示在页面上</h3>
+          <span class="tag tag-high">高危</span>
+        </div>
+        <p><strong>问题代码（<code>templates/index.html</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">HTML</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre><span class="comment">&lt;!-- 密码直接显示在页面上 --&gt;</span>
+&lt;li&gt;&lt;span class="info-label"&gt;密码：&lt;/span&gt;<span class="danger">{{ user_info["password"] }}</span>&lt;/li&gt;</pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> 登录成功后，用户的密码直接渲染在网页上。如果用户离开电脑未锁屏，路过的人可直接看到密码。这违反了 <strong>最小权限原则</strong>（Principle of Least Privilege）——前端页面不应展示任何不必要的信息。此外，如果页面被截图或共享，密码也会随之泄露。</p>
+            <div class="info-box"><strong>实际验证：</strong> 登录后的页面上直接显示 "密码：admin123"。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 4 -->
+      <div class="vuln-card severity-high">
+        <div class="vuln-header">
+          <span class="vuln-num">4</span>
+          <h3>HTML 注释泄露默认账号</h3>
+          <span class="tag tag-high">高危</span>
+        </div>
+        <p><strong>问题代码（<code>templates/login.html</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">HTML</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre><span class="comment">&lt;!-- 调试信息 - 默认管理员账号 用户名: admin 密码: admin123 --&gt;</span></pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> 这是开发阶段的调试残留，存在严重的安全隐患：</p>
+            <ul>
+              <li>任何查看网页源代码（浏览器右键 → 查看页面源代码）的人都能直接获得管理员账号密码</li>
+              <li>攻击者不需要进行任何密码爆破或猜测即可获得管理员权限</li>
+            </ul>
+            <p><strong>攻击链路：</strong> 访问登录页面 → 查看 HTML 源代码 → 直接获取管理员凭证 → 完全控制系统。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 5 -->
+      <div class="vuln-card severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-num">5</span>
+          <h3>弱 Secret Key</h3>
+          <span class="tag tag-medium">中危</span>
+        </div>
+        <p><strong>问题代码（<code>app.py</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre>app.secret_key = <span class="string">"dev-key-2025"</span>   <span class="comment"># ← 硬编码弱密钥！</span></pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> <code>secret_key</code> 用于 Flask 签名 session cookie。使用硬编码的弱密钥，攻击者可以：</p>
+            <ul>
+              <li>伪造任意用户的 session cookie，实现 <strong>会话劫持</strong>（Session Hijacking）</li>
+              <li>通过已知密钥解密 session 数据，获取敏感信息</li>
+              <li>如果应用存在反序列化漏洞，可导致远程代码执行（RCE）</li>
+            </ul>
+            <p><strong>OWASP 映射：</strong> <span class="tag tag-medium">A07:2021 – Identification and Authentication Failures</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 6 -->
+      <div class="vuln-card severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-num">6</span>
+          <h3>Debug 模式开启</h3>
+          <span class="tag tag-medium">中危</span>
+        </div>
+        <p><strong>问题代码（<code>app.py</code>）：</strong></p>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="copy-btn">复制代码</button>
+          </div>
+          <pre>app.run(<span class="danger">debug=True</span>, host=<span class="string">"0.0.0.0"</span>, port=<span class="number">5000</span>)</pre>
+        </div>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>危害分析：</strong> Flask 的 debug 模式会在代码出错时显示详细的调试页面，包含：</p>
+            <ul>
+              <li>完整的源代码片段</li>
+              <li>所有环境变量（可能包含数据库密码、API 密钥等）</li>
+              <li>当前请求的各种变量值</li>
+              <li>Python 交互式控制台（可远程执行代码）</li>
+            </ul>
+            <p>生产环境中开启 debug 模式是 <strong>极其危险的配置错误</strong>。</p>
+            <p><strong>OWASP 映射：</strong> <span class="tag tag-medium">A05:2021 – Security Misconfiguration</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 漏洞 7 -->
+      <div class="vuln-card severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-num">7</span>
+          <h3>无爆破防护</h3>
+          <span class="tag tag-medium">中危</span>
+        </div>
+        <p><strong>危害分析：</strong> 登录接口没有设置失败次数限制，攻击者可以使用 Hydra、Medusa 等自动化工具对账号进行 <strong>无限次密码爆破</strong>，结合弱口令字典（如 <code>rockyou.txt</code>），成功率极高。</p>
+        <div class="vuln-toggle">
+          <button class="vuln-expand-btn">查看详情 ▾</button>
+        </div>
+        <div class="vuln-details">
+          <div class="vuln-details-inner">
+            <p><strong>典型攻击命令：</strong></p>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">Bash</span>
+                <button class="copy-btn">复制代码</button>
+              </div>
+              <pre>hydra -l admin -P /usr/share/wordlists/rockyou.txt \<br>  192.168.14.129 http-post-form \<br>  "/login:username=^USER^&password=^PASS^:登录失败"</pre>
+            </div>
+            <p><strong>OWASP 映射：</strong> <span class="tag tag-medium">A07:2021 – Identification and Authentication Failures</span></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 四、Burp Suite 抓包验证 ============ -->
+    <section id="burpsuite" class="section">
+      <div class="section-header">
+        <h2>四、Burp Suite 抓包验证</h2>
+        <p>Burp Suite Packet Capture &amp; Verification</p>
+      </div>
+
+      <h3>4.1 抓包过程</h3>
+      <p>为了验证密码在 HTTP 传输过程中的安全性，我们使用 Burp Suite 进行了中间人代理抓包测试。具体步骤如下：</p>
+
+      <ol>
+        <li>配置 Burp Suite 代理监听 <code>127.0.0.1:8080</code></li>
+        <li>浏览器设置 HTTP 代理为 <code>127.0.0.1:8080</code></li>
+        <li>访问 <code>http://192.168.14.129:5000/login</code></li>
+        <li>输入用户名 <code>admin</code>，密码 <code>admin123</code> 并提交登录表单</li>
+        <li>Burp Suite 成功拦截到 POST 请求</li>
+      </ol>
+
+      <h3>4.2 拦截内容分析</h3>
+      <p>Burp Suite 的 <strong>Proxy → Intercept</strong> 面板中捕获到的 HTTP 请求如下：</p>
+
+      <div class="http-request">
+        <span style="color:#82aaff;">POST</span> <span style="color:#c3e88d;">/login</span> <span style="color:#f78c6c;">HTTP/1.1</span><br>
+        <span style="color:#82aaff;">Host:</span> 192.168.14.129:5000<br>
+        <span style="color:#82aaff;">User-Agent:</span> Mozilla/5.0 (X11; Linux x86_64)<br>
+        <span style="color:#82aaff;">Accept:</span> text/html,application/xhtml+xml<br>
+        <span style="color:#82aaff;">Content-Type:</span> application/x-www-form-urlencoded<br>
+        <span style="color:#82aaff;">Content-Length:</span> 37<br>
+        <br>
+        <span class="highlight">username=admin&password=admin123    ← 密码明文传输</span>
+      </div>
+
+      <div class="warning-box">
+        <strong>🚨 发现</strong>
+        <code>username=admin&password=admin123</code> 以明文形式出现在 HTTP 请求体中。在没有 HTTPS 加密的情况下，任何能截获网络流量的人（如同 WiFi 网络中的其他用户、ISP、中间路由器）都可以直接读取登录凭据。
+      </div>
+
+      <h3>4.3 HTTP vs HTTPS 对比</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th style="width:25%">特性</th><th style="width:35%">HTTP（当前）</th><th style="width:40%">HTTPS（推荐）</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>传输加密</strong></td><td>❌ 明文传输</td><td>✅ TLS 加密</td></tr>
+            <tr><td><strong>中间人攻击防护</strong></td><td>❌ 无防护</td><td>✅ 证书验证</td></tr>
+            <tr><td><strong>数据完整性</strong></td><td>❌ 可篡改</td><td>✅ 防篡改</td></tr>
+            <tr><td><strong>推荐等级</strong></td><td><span class="tag tag-broken">不推荐</span></td><td><span class="tag tag-fixed">生产必须</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 五、修复方案 ============ -->
+    <section id="fixes" class="section">
+      <div class="section-header">
+        <h2>五、修复方案</h2>
+        <p>Remediation Plan</p>
+      </div>
+
+      <p>针对上述 7 项安全漏洞，我们逐一制定了修复方案，并实施了代码层面的修改。以下详述每项修复的思路、具体代码变更及修复效果。</p>
+
+      <!-- 修复 1 -->
+      <h3>5.1 Werkzeug 密码哈希存储</h3>
+      <p><strong>修复思路：</strong> 不存储明文密码，而是存储密码的哈希值。采用 Werkzeug 库提供的 <code>generate_password_hash()</code> 函数，该函数默认使用 <strong>PBKDF2-HMAC-SHA256</strong> 算法，迭代次数为 600,000 次，并自动添加随机盐值（Salt），有效抵御彩虹表攻击（Rainbow Table Attack）和 GPU 并行破解。</p>
+
+      <h4>修复后代码（<code>app.py</code>）：</h4>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">Python</span>
+          <button class="copy-btn">复制代码</button>
+        </div>
+        <pre><span class="keyword">from</span> werkzeug.security <span class="keyword">import</span> generate_password_hash, check_password_hash
+
+USERS = {
+    <span class="string">"admin"</span>: {
+        <span class="string">"username"</span>: <span class="string">"admin"</span>,
+        <span class="string">"password"</span>: generate_password_hash(<span class="string">"admin123"</span>),  <span class="comment"># ← 哈希存储</span>
+        <span class="string">"role"</span>: <span class="string">"admin"</span>,
+        <span class="string">"email"</span>: <span class="string">"admin@example.com"</span>,
+        <span class="string">"phone"</span>: <span class="string">"13800138000"</span>,
+        <span class="string">"balance"</span>: <span class="number">99999</span>
+    },
+    <span class="string">"alice"</span>: {
+        <span class="string">"username"</span>: <span class="string">"alice"</span>,
+        <span class="string">"password"</span>: generate_password_hash(<span class="string">"alice2025"</span>), <span class="comment"># ← 哈希存储</span>
+        <span class="comment"># ...</span>
+    }
+}</pre>
+      </div>
+
+      <div class="info-box">
+        <strong>💡 效果说明</strong>
+        数据库中存储的是类似 <code>pbkdf2:sha256:600000$&lt;salt&gt;$&lt;hash&gt;</code> 的哈希值，即使数据泄露也无法还原出原始密码。每次调用 <code>generate_password_hash()</code> 会生成不同的盐值，因此相同密码的哈希结果也不同。
+        哈希算法演进建议：<code>werkzeug</code> → <code>bcrypt</code> → <code>argon2</code>（当前最推荐的自适应哈希算法）。
+      </div>
+
+      <!-- 修复 2 -->
+      <h3>5.2 安全密码验证</h3>
+      <p><strong>修复思路：</strong> 使用 Werkzeug 提供的 <code>check_password_hash()</code> 函数替代直接字符串比对。该函数内置了 <strong>常量时间比较</strong>（Constant-Time Comparison），有效防御时序攻击。</p>
+
+      <div class="fix-compare">
+        <div class="fix-box fix-before">
+          <span class="fix-label">❌ 修复前</span>
+          <code>if USERS[username]["password"] == password:</code>
+        </div>
+        <div class="fix-box fix-after">
+          <span class="fix-label">✅ 修复后</span>
+          <code>if check_password_hash(USERS[username]["password"], password):</code>
+        </div>
+      </div>
+
+      <!-- 修复 3 -->
+      <h3>5.3 不在模板中输出密码</h3>
+      <p><strong>修复思路：</strong> 从根本上消除密码在页面上的显示，采取双重保障措施：① 在模板中删除密码展示行；② 在后端传递给模板前过滤掉密码字段。</p>
+
+      <h4>修复后代码（<code>templates/index.html</code>）：</h4>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">HTML</span>
+          <button class="copy-btn">复制代码</button>
+        </div>
+        <pre><span class="comment">&lt;!-- 修复前 --&gt;</span>
+&lt;li&gt;&lt;span class="info-label"&gt;密码：&lt;/span&gt;{{ user_info[<span class="string">"password"</span>] }}&lt;/li&gt;
+
+<span class="comment">&lt;!-- 修复后 --&gt;  ← 整行删除，不再显示密码</span></pre>
+      </div>
+
+      <h4>后端配合修改（<code>app.py</code>）：</h4>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">Python</span>
+          <button class="copy-btn">复制代码</button>
+        </div>
+        <pre><span class="comment"># 传递给模板前过滤掉密码字段</span>
+user_info = {k: v <span class="keyword">for</span> k, v <span class="keyword">in</span> USERS[username].items() <span class="keyword">if</span> k != <span class="string">"password"</span>}</pre>
+      </div>
+
+      <!-- 修复 4 -->
+      <h3>5.4 删除泄露信息的 HTML 注释</h3>
+      <p><strong>修复思路：</strong> 移除包含默认账号密码的调试注释。对于需要记录此类信息的场景，应使用环境变量或独立的配置文件管理，并将其添加到 <code>.gitignore</code> 中。</p>
+
+      <div class="fix-compare">
+        <div class="fix-box fix-before">
+          <span class="fix-label">❌ 修复前</span>
+          <code>&lt;!-- 调试信息 - 默认管理员账号 用户名: admin 密码: admin123 --&gt;</code>
+        </div>
+        <div class="fix-box fix-after">
+          <span class="fix-label">✅ 修复后</span>
+          <code>&lt;!-- 整行删除 --&gt;</code>
+        </div>
+      </div>
+
+      <!-- 修复 5 -->
+      <h3>5.5 随机 Secret Key</h3>
+      <p><strong>修复思路：</strong> 使用 <code>os.urandom(32)</code> 在每次应用启动时生成 32 字节（256 位）的随机密钥，替代硬编码的弱密钥。该密钥源自操作系统提供的加密安全随机数生成器（CSPRNG）。</p>
+
+      <div class="fix-compare">
+        <div class="fix-box fix-before">
+          <span class="fix-label">❌ 修复前</span>
+          <code>app.secret_key = "dev-key-2025"</code>
+        </div>
+        <div class="fix-box fix-after">
+          <span class="fix-label">✅ 修复后</span>
+          <code>app.secret_key = os.urandom(32)  # 256-bit random key</code>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>💡 进阶建议</strong>
+        对于生产环境，建议将 <code>secret_key</code> 存储于环境变量中（如 <code>os.environ.get('FLASK_SECRET_KEY')</code>），确保应用重启后 session 仍可解密，同时避免密钥硬编码在代码库中。
+      </div>
+
+      <!-- 修复 6 -->
+      <h3>5.6 关闭 Debug 模式</h3>
+      <p><strong>修复思路：</strong> 将 <code>debug=True</code> 改为 <code>debug=False</code>，并建议将 debug 模式的控制权交给环境变量，实现开发与生产环境的自动切换。</p>
+
+      <div class="fix-compare">
+        <div class="fix-box fix-before">
+          <span class="fix-label">❌ 修复前</span>
+          <code>app.run(debug=True, host="0.0.0.0", port=5000)</code>
+        </div>
+        <div class="fix-box fix-after">
+          <span class="fix-label">✅ 修复后</span>
+          <code>app.run(debug=False, host="0.0.0.0", port=5000)</code>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>💡 推荐做法</strong>
+        <code>debug = os.environ.get('FLASK_ENV') == 'development'</code><br>
+        <code>app.run(debug=debug, host="0.0.0.0", port=5000)</code>
+      </div>
+
+      <!-- 修复 7 -->
+      <h3>5.7 爆破防护</h3>
+      <p><strong>修复思路：</strong> 实现基于 IP 的登录失败计数与临时锁定机制。同一 IP 地址在 60 秒内连续输错 3 次密码后，将被临时锁定 60 秒，大幅增加自动化爆破的时间成本。</p>
+
+      <h4>修复后代码（<code>app.py</code>）：</h4>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">Python</span>
+          <button class="copy-btn">复制代码</button>
+        </div>
+        <pre><span class="comment"># 登录失败计数（内存存储）</span>
+login_attempts = {}
+
+<span class="comment"># 在登录验证中检查</span>
+client_ip = request.remote_addr
+<span class="keyword">if</span> client_ip <span class="keyword">in</span> login_attempts:
+    attempts, lock_time = login_attempts[client_ip]
+    <span class="keyword">if</span> attempts >= <span class="number">3</span> <span class="keyword">and</span> (time.time() - lock_time) < <span class="number">60</span>:
+        error = <span class="string">"登录失败次数过多，请60秒后再试。"</span>
+        <span class="keyword">return</span> render_template(<span class="string">"login.html"</span>, error=error)
+
+<span class="comment"># 登录失败后记录</span>
+login_attempts[client_ip] = (count + <span class="number">1</span>, now)
+
+<span class="comment"># 登录成功后清除计数</span>
+login_attempts.pop(client_ip, <span class="keyword">None</span>)</pre>
+      </div>
+
+      <div class="info-box">
+        <strong>💡 设计考量</strong>
+        本方案采用内存字典存储，适用于单进程部署。对于生产环境的分布式部署，建议改用 Redis 等集中式缓存存储失败计数，实现跨进程的锁定同步。更进一步的方案包括：reCAPTCHA、账户临时冻结、递增延迟（Exponential Backoff）等。
+      </div>
+    </section>
+
+    <!-- ============ 六、修复前后对比 ============ -->
+    <section id="comparison" class="section">
+      <div class="section-header">
+        <h2>六、修复前后对比</h2>
+        <p>Before &amp; After Comparison</p>
+      </div>
+
+      <p>以下表格汇总了所有 7 项安全漏洞在修复前后的状态对比，直观展示安全加固的全貌：</p>
+
+      <div class="table-wrapper">
+        <table class="compare-table">
+          <thead>
+            <tr><th style="width:22%">漏洞项</th><th style="width:34%">修复前</th><th style="width:44%">修复后</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>密码存储</strong></td>
+              <td>明文 <code>"admin123"</code> <span class="tag tag-broken">危险</span></td>
+              <td><code>pbkdf2:sha256:600000$salt$hash</code> <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>密码比对</strong></td>
+              <td><code>==</code> 字符串直接比较 <span class="tag tag-broken">危险</span></td>
+              <td><code>check_password_hash()</code> 常量时间比较 <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>密码显示</strong></td>
+              <td>页面上直接显示密码字段 <span class="tag tag-broken">危险</span></td>
+              <td>密码不再出现在任何页面 <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>默认账号泄露</strong></td>
+              <td>HTML 注释中硬编码 <span class="tag tag-broken">危险</span></td>
+              <td>删除注释，敏感信息不外泄 <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>Secret Key</strong></td>
+              <td>硬编码弱密钥 <code>"dev-key-2025"</code> <span class="tag tag-broken">危险</span></td>
+              <td>随机生成 256 位密钥 <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>Debug 模式</strong></td>
+              <td>开启 <code>debug=True</code> <span class="tag tag-broken">危险</span></td>
+              <td>关闭 <code>debug=False</code> <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>爆破防护</strong></td>
+              <td>无限制，可无限次尝试 <span class="tag tag-broken">危险</span></td>
+              <td>3 次失败锁定 60 秒 <span class="tag tag-fixed">安全</span></td>
+            </tr>
+            <tr>
+              <td><strong>HTTP 明文传输</strong></td>
+              <td>密码明文传输（未修复） <span class="tag tag-broken">危险</span></td>
+              <td>需配置 HTTPS（本次未涉及） <span class="tag tag-medium">待修复</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 七、测试验证 ============ -->
+    <section id="testing" class="section">
+      <div class="section-header">
+        <h2>七、测试验证</h2>
+        <p>Testing &amp; Verification</p>
+      </div>
+
+      <p>修复完成后，我们执行了以下测试步骤，逐一验证每项修复措施的有效性：</p>
+
+      <ul class="timeline">
+        <li class="pass">
+          <span class="step-label">步骤 1</span><br>
+          <strong>启动服务：</strong> 执行 <code>python3 app.py</code>，服务正常启动，没有报错
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 2</span><br>
+          <strong>检查页面源码：</strong> 查看登录页和首页的 HTML 源代码，确认没有泄漏账号密码的注释或字段
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 3</span><br>
+          <strong>正常登录测试：</strong> 使用 <code>admin / admin123</code> 登录，成功进入用户信息页面，确认页面没有显示密码字段
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 4</span><br>
+          <strong>密码哈希验证：</strong> 查看 <code>app.py</code> 中存储的密码值，确认已变为哈希字符串（<code>pbkdf2:sha256:...</code>），而非明文
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 5</span><br>
+          <strong>爆破防护测试：</strong> 连续输错 3 次密码，第 4 次提示 "登录失败次数过多，请60秒后再试"
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 6</span><br>
+          <strong>正常用户流程：</strong> 使用正确密码登录，确认可正常进入首页，登录失败计数已清除
+        </li>
+        <li class="pass">
+          <span class="step-label">步骤 7</span><br>
+          <strong>登出测试：</strong> 点击登出按钮，确认 session 已清除，需重新登录才能访问首页
+        </li>
+        <li>
+          <span class="step-label">步骤 8</span><br>
+          <strong>Burp Suite 抓包：</strong> 使用 Burp Suite 抓包确认密码明文传输（此项需配置 HTTPS 才能完全修复）
+        </li>
+      </ul>
+
+      <div class="success-box">
+        <strong>✅ 测试结论</strong>
+        所有 7 项已实施的修复方案均通过验证，修复有效。未修复项（HTTPS 传输加密）已明确记录，作为后续优化方向。
+      </div>
+    </section>
+
+    <!-- ============ 八、总结与反思 ============ -->
+    <section id="summary" class="section">
+      <div class="section-header">
+        <h2>八、总结与反思</h2>
+        <p>Summary &amp; Reflections</p>
+      </div>
+
+      <h3>8.1 安全开发五大原则</h3>
+      <p>通过本次安全漏洞分析与修复实践，我们总结出以下五项 Web 安全开发的核心原则：</p>
+
+      <ul class="principle-list">
+        <li>
+          <strong>永远不要存储明文密码</strong> — 使用经过充分测试的哈希库（如 <code>werkzeug.security</code>、<code>bcrypt</code>、<code>argon2</code>），选择带有自适应迭代次数的算法（如 PBKDF2、bcrypt、argon2），以抵御暴力破解和硬件加速攻击（GPU/ASIC）。
+        </li>
+        <li>
+          <strong>最小权限原则</strong> — 不应在前端展示敏感字段（密码、密钥、身份证号等）。传递数据到模板前，务必使用字典推导、对象筛选等方式过滤掉不需要展示的敏感信息。
+        </li>
+        <li>
+          <strong>不要信任注释</strong> — 代码注释中的敏感信息同样是安全风险。在生产环境的代码中不应保留包含密码、密钥、连接字符串等敏感信息的注释。使用 <code>.gitignore</code> 管理配置文件。
+        </li>
+        <li>
+          <strong>使用安全的默认配置</strong> — <code>debug=True</code> 仅用于开发环境，上线前必须关闭。所有安全相关的配置项都应默认采用安全的设置，通过环境变量控制不同环境的差异。
+        </li>
+        <li>
+          <strong>防御纵深（Defense in Depth）</strong> — 单一安全措施不足以提供充分保护。应采用多层防御：密码哈希防泄露、爆破防护防暴力破解、HTTPS 防中间人攻击、CSRF Token 防跨站请求伪造、Session 安全配置防劫持。
+        </li>
+      </ul>
+
+      <h3>8.2 本次作业未修复项</h3>
+      <p>由于实验环境的限制，以下安全风险本次未能完全解决，作为后续迭代的优化方向：</p>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th style="width:22%">未修复项</th><th style="width:14%">风险等级</th><th>说明与建议</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>HTTP 明文传输</strong></td>
+              <td><span class="tag tag-critical">高危</span></td>
+              <td>由于在私有内网测试环境，未配置 HTTPS。生产环境必须使用 HTTPS + HSTS 防止中间人窃听。建议通过 Let's Encrypt（免费 TLS 证书）或 Nginx 反向代理实现。</td>
+            </tr>
+            <tr>
+              <td><strong>Session 安全配置</strong></td>
+              <td><span class="tag tag-high">中危</span></td>
+              <td>可进一步配置 <code>session_cookie_secure=True</code>（仅 HTTPS 传输）、<code>session_cookie_httponly=True</code>（禁止 JavaScript 访问）、<code>session_cookie_samesite='Lax'</code> 等安全选项。</td>
+            </tr>
+            <tr>
+              <td><strong>CSRF 防护</strong></td>
+              <td><span class="tag tag-high">中危</span></td>
+              <td>登录表单未添加 CSRF Token，可被跨站请求伪造攻击利用。建议集成 Flask-WTF 库统一管理 CSRF 防护，或手动在表单中嵌入 <code>csrf_token</code>。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>8.3 安全审计方法论总结</h3>
+      <p>本次审计遵循了系统化的安全评估流程：<strong>源代码审查（Static Analysis）→ 漏洞分类与风险评估 → 动态抓包验证（Dynamic Analysis）→ 修复实施 → 回归测试验证</strong>。这一方法论可复用于其他 Web 应用的安全审计工作。</p>
+
+      <blockquote>
+        <p>"Security is not a product, but a process." — 安全不是一个产品，而是一个持续的过程。</p>
+        <p>真正的安全来自持续的关注、定期的审计和不断的改进，而非一次性的修复。</p>
+      </blockquote>
+    </section>
+
+    <!-- ============ 九、参考资料 ============ -->
+    <section class="section">
+      <div class="section-header">
+        <h2>九、参考资料</h2>
+        <p>References</p>
+      </div>
+
+      <p>以下为本报告编写过程中参考的权威资料与官方文档：</p>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th style="width:8%">#</th><th style="width:32%">资料名称</th><th>来源</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="text-align:center">1</td>
+              <td>Flask 官方文档 — 安全考量</td>
+              <td><a href="https://flask.palletsprojects.com/en/stable/security/" target="_blank" rel="noopener">flask.palletsprojects.com</a></td>
+            </tr>
+            <tr>
+              <td style="text-align:center">2</td>
+              <td>Werkzeug 密码哈希文档</td>
+              <td><a href="https://werkzeug.palletsprojects.com/en/stable/utils/#module-werkzeug.security" target="_blank" rel="noopener">werkzeug.palletsprojects.com</a></td>
+            </tr>
+            <tr>
+              <td style="text-align:center">3</td>
+              <td>OWASP — 密码存储备忘单</td>
+              <td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html" target="_blank" rel="noopener">cheatsheetseries.owasp.org</a></td>
+            </tr>
+            <tr>
+              <td style="text-align:center">4</td>
+              <td>OWASP — 认证防护备忘单</td>
+              <td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html" target="_blank" rel="noopener">cheatsheetseries.owasp.org</a></td>
+            </tr>
+            <tr>
+              <td style="text-align:center">5</td>
+              <td>Burp Suite 使用指南</td>
+              <td><a href="https://portswigger.net/burp/documentation" target="_blank" rel="noopener">portswigger.net</a></td>
+            </tr>
+            <tr>
+              <td style="text-align:center">6</td>
+              <td>OWASP Top 10 — 2021</td>
+              <td><a href="https://owasp.org/Top10/" target="_blank" rel="noopener">owasp.org/Top10/</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================================================
+       Footer
+       ====================================================== -->
+  <footer class="footer">
+    <div class="container">
+      <p><strong>报告生成日期：</strong> 2026-07-07 &nbsp;|&nbsp; <strong>测试环境：</strong> Kali Linux + Python Flask + Burp Suite</p>
+      <p><strong>修复后代码备份：</strong> <code>app.py.bak</code>、<code>login.html.bak</code>、<code>index.html.bak</code></p>
+      <p><strong>项目地址：</strong> <a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank" rel="noopener" style="color:rgba(255,255,255,0.6);">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+      <p style="margin-top:1rem; font-size:0.75rem; color:rgba(255,255,255,0.3);">
+        Built with ❤️ — Security Audit Report &copy; 2026
+      </p>
+    </div>
+  </footer>
+
+  <!-- ======================================================
+       回到顶部按钮
+       ====================================================== -->
+  <button class="back-to-top" aria-label="回到顶部" title="回到顶部">↑</button>
+
+  <!-- ======================================================
+       JavaScript
+       ====================================================== -->
+  <script src="js/main.js"></script>
+</body>
+</html>

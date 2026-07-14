@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="文件包含漏洞分析与防护实践报告 — 5 类漏洞分析与修复，涵盖 LFI、路径遍历、RFI、XSS 等">
+<meta property="og:title" content="文件包含漏洞分析与防护报告">
+<meta property="og:description" content="动态页面加载功能安全审计 — 5个漏洞 + 4种安全机制 + 全项目29漏洞汇总">
+<title>文件包含漏洞分析与防护报告 | Flask 安全审计</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="../" class="nav-brand"><span class="brand-icon">📄</span> 文件包含分析</a>
+  <button class="nav-toggle">☰</button>
+  <ul class="nav-links">
+    <li><a href="#overview">实验概述</a></li>
+    <li><a href="#vulns">漏洞分析</a></li>
+    <li><a href="#burp">Burp 攻击</a></li>
+    <li><a href="#fix">防护方案</a></li>
+    <li><a href="#summary">总结</a></li>
+    <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+  </ul>
+</nav>
+
+<header class="hero">
+  <div class="hero-particles"></div>
+  <div class="hero-badge">文 件 包 含 漏 洞 分 析 报 告</div>
+  <h1>文件包含漏洞分析<br>与防护实践报告</h1>
+  <p class="hero-sub">Flask 用户管理系统 — 动态页面加载功能安全审计全记录</p>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Flask 3.1 · SQLite 3 · Burp Suite CE<br>
+    <strong>目标功能：</strong>动态页面加载 /page?name= &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-13
+  </div>
+  <div class="hero-scroll">↓ 向下滚动</div>
+</header>
+
+<main class="container">
+
+<section id="overview" class="section">
+  <div class="section-header"><h2>一、实验概述</h2><p>Experiment Overview</p></div>
+
+  <h3>1.1 实验目的</h3>
+  <ol>
+    <li>理解<strong>文件包含漏洞</strong>的产生原理与攻击手法</li>
+    <li>区分<strong>本地文件包含 LFI</strong> 与<strong>远程文件包含 RFI</strong></li>
+    <li>掌握使用 Burp Suite 进行文件包含漏洞测试的方法</li>
+    <li>学会识别不安全的文件路径拼接中的 5 类典型漏洞</li>
+    <li>掌握文件包含功能的<strong>安全加固方案</strong></li>
+    <li>通过本次实验完成对项目全部功能的<strong>完整安全审计与修复</strong></li>
+  </ol>
+
+  <div class="summary-stats">
+    <div class="stat-card stat-danger"><div class="stat-num">5</div><div class="stat-label">发现漏洞</div></div>
+    <div class="stat-card"><div class="stat-num">5</div><div class="stat-label">已修复</div></div>
+    <div class="stat-card"><div class="stat-num">4种</div><div class="stat-label">安全机制</div></div>
+    <div class="stat-card"><div class="stat-num">29</div><div class="stat-label">累计修复</div></div>
+  </div>
+
+  <h3>1.2 文件包含 vs 路径遍历</h3>
+  <div class="arch-box">
+文件包含漏洞与路径遍历漏洞经常同时出现：
+
+路径遍历：通过 ../ 等序列访问不在预期目录中的文件
+  例如：/page?name=../../../etc/passwd
+
+本地文件包含：将文件内容包含到页面输出中
+  例如：/page?name=../app.py → app.py 内容被渲染到页面
+
+在本项目中，/page?name= 同时存在这两个漏洞：
+  · 路径遍历：通过 ../ 穿越到 pages/ 目录之外
+  · 文件包含：遍历到的文件内容被读取并显示在页面中
+  </div>
+
+  <h3>1.3 功能缺陷汇总</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>缺陷</th><th>严重</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>无路径校验（直接拼接）</td><td><span class="tag tag-critical">严重</span></td><td><code>os.path.join</code> 直接拼接，<code>../</code> 可穿越目录</td></tr>
+        <tr><td>无字符过滤</td><td><span class="tag tag-critical">严重</span></td><td><code>.</code>、<code>/</code> 等路径穿越字符未被过滤</td></tr>
+        <tr><td>无路径规范化验证</td><td><span class="tag tag-critical">严重</span></td><td>未使用 <code>os.path.realpath</code> 校验</td></tr>
+        <tr><td>无访问控制</td><td><span class="tag tag-medium">中危</span></td><td>未登录也可访问</td></tr>
+        <tr><td>输出使用 <code>| safe</code></td><td><span class="tag tag-medium">中危</span></td><td>文件内容直接渲染，存在 XSS 风险</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="vulns" class="section">
+  <div class="section-header"><h2>二、漏洞分析与修复</h2><p>Vulnerability Analysis &amp; Remediation</p></div>
+
+  <!-- V1 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">1</span><h3>本地文件包含 LFI / 路径遍历</h3><span class="tag tag-critical">严重 · CVSS 9.0</span></div>
+    <p><strong>CWE-22 · 动态页面加载 <code>GET /page?name=</code></strong></p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+      <pre>name = request.args.get("name", "")
+file_path = os.path.join(PAGES_DIR, name)  # 直接拼接用户输入！
+if os.path.isfile(file_path):
+    with open(file_path, "r") as f:
+        page_content = f.read()</pre>
+    </div>
+    <p><strong>攻击复现：</strong>读取源码 <code>?name=../app.py</code>、系统文件 <code>?name=../../../../etc/passwd</code>、数据库 <code>?name=../data/users.db</code>，全部成功！</p>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>os.path.join(PAGES_DIR, name)</code> 用户可控</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>字符过滤 + 路径规范化 + 目录白名单</div>
+    </div>
+  </div>
+
+  <!-- V2 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">2</span><h3>远程文件包含 RFI</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong>理论风险：</strong>虽然 <code>open()</code> 不支持 URL，但如果代码改为 <code>urllib</code>/<code>requests</code> 库则存在 RFI 风险。</p>
+    <div class="info-box"><strong>防护：</strong>只允许本地文件包含，拒绝 URL 协议；限制可访问的文件目录范围。</div>
+  </div>
+
+  <!-- V3 -->
+  <div class="vuln-card sev-high">
+    <div class="vuln-header"><span class="vuln-num">3</span><h3>文件内容泄露（敏感信息暴露）</h3><span class="tag tag-high">高危</span></div>
+    <p><strong>CWE-200 · 被包含的文件内容直接显示在页面中。</strong></p>
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>泄露路径</th><th>泄露内容</th><th>危害</th></tr></thead>
+        <tbody>
+          <tr><td><code>../app.py</code></td><td>app.secret_key、DB_PATH、路由逻辑</td><td><span class="tag tag-critical">严重</span></td></tr>
+          <tr><td><code>../data/users.db</code></td><td>所有用户数据、密码哈希</td><td><span class="tag tag-high">高危</span></td></tr>
+          <tr><td><code>../../../../etc/passwd</code></td><td>系统用户列表</td><td><span class="tag tag-medium">中危</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- V4 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">4</span><h3>XSS 通过文件内容渲染</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-79 · <code>{{ page_content | safe }}</code> 跳过 HTML 转义</strong></p>
+    <p>如果 <code>page_content</code> 中包含 <code>&lt;script&gt;</code> 标签，会被浏览器直接执行。</p>
+    <div class="warning-box"><strong>防护：</strong>将 <code>| safe</code> 替换为普通输出 <code>{{ page_content }}</code>（自动转义）；或确保来源可信。</div>
+  </div>
+
+  <!-- V5 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">5</span><h3>无认证访问动态页面</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-862 · 未登录也可访问</strong></p>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无 <code>@login_required</code></div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>根据业务需要添加认证</div>
+    </div>
+  </div>
+
+</section>
+
+<section id="burp" class="section">
+  <div class="section-header"><h2>三、Burp Suite 攻击复现</h2><p>Attack Reproduction</p></div>
+
+  <h3>3.1 路径遍历读取文件</h3>
+  <div class="burp-panel">
+步骤1：访问 /page?name=help → Burp 拦截<br>
+步骤2：发送到 Repeater（Ctrl+R）<br><br>
+测试1：读取应用源码<br>
+  GET /page?name=../app.py HTTP/1.1<br>
+  <span class="hl">→ 响应中包含 app.py 的源代码</span><br><br>
+测试2：读取系统文件<br>
+  GET /page?name=../../../../etc/passwd HTTP/1.1<br>
+  <span class="hl">→ 响应中包含 /etc/passwd 的内容</span><br><br>
+测试3：URL编码绕过<br>
+  GET /page?name=%2E%2E%2F%2E%2E%2Fapp.py HTTP/1.1<br>
+  <span class="hl">→ 响应中包含 app.py 源代码</span>
+  </div>
+
+  <h3>3.2 Intruder 批量探测</h3>
+  <div class="burp-panel">
+将 name 设置为 payload 位置：GET /page?name=§help§<br><br>
+Payload 列表：<br>
+  ../app.py<br>
+  ../../../../etc/passwd<br>
+  ../data/users.db<br>
+  ....//....//....//etc/passwd<br>
+  %2e%2e%2f%2e%2e%2fapp.py<br><br>
+攻击方式：Sniper → 观察响应长度，异常的可能文件包含成功
+  </div>
+
+  <h3>3.3 测试结果</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>测试项目</th><th>请求</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td>正常访问</td><td><code>?name=help</code></td><td>✅ 显示帮助</td><td>✅ 显示帮助</td></tr>
+        <tr><td>读取源码</td><td><code>?name=../app.py</code></td><td>✅ 泄露源码</td><td>❌ 拦截</td></tr>
+        <tr><td>读取系统文件</td><td><code>?name=../../../../etc/passwd</code></td><td>✅ 泄露系统文件</td><td>❌ 拦截</td></tr>
+        <tr><td>读取数据库</td><td><code>?name=../data/users.db</code></td><td>✅ 泄露数据库</td><td>❌ 拦截</td></tr>
+        <tr><td>URL编码绕过</td><td><code>?name=%2E%2E%2Fapp.py</code></td><td>✅ 绕过成功</td><td>❌ 拦截</td></tr>
+        <tr><td>双重编码绕过</td><td><code>?name=%252E%252E%252Fapp.py</code></td><td>✅ 可能绕过</td><td>❌ 拦截</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="fix" class="section">
+  <div class="section-header"><h2>四、防护方案</h2><p>Security Hardening</p></div>
+
+  <h3>4.1 四层防护体系</h3>
+  <div class="arch-box">
+              文件包含漏洞防护体系
+
+第一层：输入字符过滤（基础防御）
+  re.sub(r"[^a-zA-Z0-9_\-]", "", name)
+  只允许字母、数字、下划线、短横线
+  → 彻底阻断 ../ 等路径穿越字符
+
+第二层：路径规范化验证（核心防御）
+  os.path.realpath() 获取真实路径
+  str.startswith(pages_real) 验证在 pages 目录内
+  → 防止经过编码/变形的路径穿越
+
+第三层：合理的输出安全（辅助防御）
+  不建议在公开页面使用 | safe
+  → 降低 XSS 风险
+
+第四层：错误信息保护（辅助防御）
+  统一显示"页面不存在"
+  不泄露文件路径、不存在的原因等
+  → 防止信息泄露
+  </div>
+
+  <h3>4.2 核心修复代码</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">Python — 完整修复</span><button class="copy-btn">复制代码</button></div>
+    <pre>@app.route("/page")
+def dynamic_page():
+    name = request.args.get("name", "")
+    page_content = None
+    if name:
+        # 第一层：字符白名单过滤
+        safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", name)
+        if not safe_name:
+            page_content = "页面不存在"
+        else:
+            # 第二层：路径规范化与目录验证
+            file_path = os.path.join(PAGES_DIR, safe_name)
+            real_path = os.path.realpath(file_path)
+            pages_real = os.path.realpath(PAGES_DIR)
+
+            if not real_path.startswith(pages_real + os.sep) \
+               and real_path != pages_real:
+                page_content = "页面不存在"
+            elif os.path.isfile(real_path):
+                try:
+                    with open(real_path, "r", encoding="utf-8") as f:
+                        page_content = f.read()
+                except Exception:
+                    page_content = None
+            else:
+                # 尝试加 .html 后缀
+                file_path_html = os.path.join(PAGES_DIR, safe_name + ".html")
+                real_path_html = os.path.realpath(file_path_html)
+                if not real_path_html.startswith(pages_real + os.sep):
+                    page_content = "页面不存在"
+                elif os.path.isfile(real_path_html):
+                    with open(real_path_html, "r") as f:
+                        page_content = f.read()
+                else:
+                    page_content = None
+        if page_content is None:
+            page_content = "页面不存在"
+    return render_template("index.html", page_content=page_content)</pre>
+  </div>
+
+  <h3>4.3 防御原理解析</h3>
+  <div class="arch-box">
+第一阶段：字符过滤
+  输入："../../../etc/passwd"
+  过滤：re.sub(r"[^a-zA-Z0-9_\-]", "", name)
+  结果："----------etcpasswd"（特殊字符全被移除）
+  → 路径穿越字符被彻底清除！
+
+第二阶段：路径规范化
+  os.path.realpath() 将相对路径转为绝对路径
+  验证是否以 PAGES_DIR 开头
+
+第三阶段：双层防御
+  · 字符过滤 + 路径验证 = 双层保险
+  · 任何一层都能拦截攻击
+  </div>
+
+  <h3>4.4 修复前后对比</h3>
+  <div class="table-wrapper">
+    <table class="compare-table">
+      <thead><tr><th>安全机制</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td>字符过滤</td><td>❌ 无</td><td>✅ <code>re.sub</code> 白名单</td></tr>
+        <tr><td>路径规范化</td><td>❌ 无</td><td>✅ <code>os.path.realpath</code></td></tr>
+        <tr><td>目录白名单</td><td>❌ 无</td><td>✅ <code>.startswith(pages_real)</code></td></tr>
+        <tr><td>统一错误信息</td><td>❌ 部分</td><td>✅ 全部统一</td></tr>
+        <tr><td>路径穿越防御</td><td>❌ 无防护</td><td>✅ 双层防护</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="summary" class="section">
+  <div class="section-header"><h2>五、总结与项目汇总</h2><p>Summary &amp; Project Overview</p></div>
+
+  <h3>5.1 三种防御层次</h3>
+  <div class="arch-box">
+第1层（最基础）：字符白名单过滤 → 拒绝所有特殊字符
+第2层（最核心）：路径规范化验证 → os.path.realpath() + startswith()
+第3层（最彻底）：文件白名单模式 → 只允许预定义文件列表
+  </div>
+
+  <h3>5.2 全部轮次修复统计</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>轮次</th><th>新增功能</th><th>漏洞数</th></tr></thead>
+      <tbody>
+        <tr><td>第1轮</td><td>基础登录功能</td><td>7</td></tr>
+        <tr><td>第2轮</td><td>注册 + 搜索功能</td><td>2（SQL注入）</td></tr>
+        <tr><td>第3轮</td><td>头像上传功能</td><td>7</td></tr>
+        <tr><td>第4轮</td><td>个人中心 + 充值功能</td><td>8（含业务逻辑+越权）</td></tr>
+        <tr><td>第5轮</td><td>动态页面加载功能</td><td>5（文件包含）</td></tr>
+        <tr><td><strong>总计</strong></td><td><strong>5个功能模块</strong></td><td><strong>29个漏洞（全部修复）</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>5.3 漏洞类型分布</h3>
+  <div class="arch-box">
+漏洞类型                 数量  占比
+────────────────────────────────────
+SQL 注入                 4    14%
+路径遍历/文件包含        3    10%
+文件上传类型校验缺失      3    10%
+IDOR 越权访问            2    7%
+业务逻辑缺陷             2    7%
+CSRF 跨站请求伪造        2    7%
+密码明文/信息泄露        2    7%
+XSS 跨站脚本             2    7%
+未授权访问               2    7%
+安全配置错误             3    10%
+重放攻击/频率缺失       2    7%
+输入校验缺失             2    7%
+────────────────────────────────────
+总计                    29   100%
+  </div>
+
+  <h3>5.4 最终安全配置</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>配置项</th><th>状态</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>SECRET_KEY</code></td><td>✅</td><td>随机 <code>os.urandom(32)</code></td></tr>
+        <tr><td><code>SESSION_COOKIE_HTTPONLY</code></td><td>✅</td><td>禁止 JS 读取</td></tr>
+        <tr><td><code>SESSION_COOKIE_SAMESITE</code></td><td>✅</td><td>"Lax" 防护 CSRF</td></tr>
+        <tr><td>密码存储</td><td>✅</td><td>scrypt 哈希</td></tr>
+        <tr><td>SQL 查询</td><td>✅</td><td>参数化查询</td></tr>
+        <tr><td>CSRF</td><td>✅</td><td>所有 POST 接口</td></tr>
+        <tr><td>文件上传</td><td>✅</td><td>白名单 + 魔数</td></tr>
+        <tr><td>路径遍历</td><td>✅</td><td>字符过滤 + 规范化</td></tr>
+        <tr><td>IDOR</td><td>✅</td><td>Session 绑定</td></tr>
+        <tr><td>金额校验</td><td>✅</td><td>正数 + 上限</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <blockquote>
+    <p><strong>"一个字符的信任，就可能让整个系统沦陷。"</strong></p>
+    <p>文件包含漏洞只需要一个简单的 <code>../</code>，就能让攻击者读取系统中任何可读的文件。防御的方式也同样简单：<strong>永远不要相信用户输入的路径，永远不要直接将用户输入拼接到文件路径中。</strong></p>
+    <p>从第一轮的密码安全加固，到最后一轮的文件包含防护，本项目累计修复 <strong>29 个漏洞</strong>，覆盖 OWASP Top 10 中的大部分类别。<strong>安全不是最终的状态，而是持续的过程。</strong></p>
+  </blockquote>
+</section>
+
+<section class="section">
+  <div class="section-header"><h2>参考资料</h2><p>References</p></div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th style="width:6%">#</th><th>资料名称</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>OWASP — Path Traversal</td><td><a href="https://owasp.org/www-community/attacks/Path_Traversal" target="_blank">owasp.org</a></td></tr>
+        <tr><td>2</td><td>OWASP — Testing for Local File Inclusion</td><td><a href="https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/07-Input_Validation_Testing/11.1-Testing_for_Local_File_Inclusion" target="_blank">owasp.org</a></td></tr>
+        <tr><td>3</td><td>CWE-22: Path Traversal</td><td><a href="https://cwe.mitre.org/data/definitions/22.html" target="_blank">cwe.mitre.org</a></td></tr>
+        <tr><td>4</td><td>PortSwigger — File Path Traversal</td><td><a href="https://portswigger.net/web-security/file-path-traversal" target="_blank">portswigger.net</a></td></tr>
+        <tr><td>5</td><td>PortSwigger — File Inclusion</td><td><a href="https://portswigger.net/web-security/file-inclusion" target="_blank">portswigger.net</a></td></tr>
+        <tr><td>6</td><td>OWASP Top 10 — 2021</td><td><a href="https://owasp.org/Top10/" target="_blank">owasp.org</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p><strong>报告人：</strong>________________ &nbsp;|&nbsp; <strong>指导教师：</strong>________________</p>
+    <p><strong>报告日期：</strong>2026-07-13 &nbsp;|&nbsp; <strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:.8rem;font-size:.72rem;color:rgba(150,200,255,0.25);">📄 文件包含漏洞分析与防护报告 &copy; 2026</p>
+  </div>
+</footer>
+
+<button class="back-to-top">↑</button>
+<script src="js/main.js"></script>
+</body>
+</html>

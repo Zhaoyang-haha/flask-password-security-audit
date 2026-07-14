@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="业务逻辑漏洞与越权访问分析报告 — 8 类漏洞分析与修复，涵盖 IDOR、负值充值、CSRF 等">
+<meta property="og:title" content="业务逻辑漏洞与越权访问分析报告">
+<meta property="og:description" content="个人中心与充值功能安全审计 — 8个漏洞 + 6种安全机制">
+<title>业务逻辑漏洞与越权分析报告 | Flask 安全审计</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏦</text></svg>">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="../" class="nav-brand"><span class="brand-icon">🏦</span> 业务逻辑审计</a>
+  <button class="nav-toggle">☰</button>
+  <ul class="nav-links">
+    <li><a href="#overview">实验概述</a></li>
+    <li><a href="#vulns">漏洞分析</a></li>
+    <li><a href="#burp">Burp 攻击</a></li>
+    <li><a href="#fix">防护方案</a></li>
+    <li><a href="#summary">总结</a></li>
+    <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+  </ul>
+</nav>
+
+<header class="hero">
+  <div class="hero-particles"></div>
+  <div class="hero-badge">业 务 逻 辑 与 越 权 分 析 报 告</div>
+  <h1>业务逻辑漏洞与<br>越权访问分析报告</h1>
+  <p class="hero-sub">Flask 用户管理系统 — 个人中心与充值功能安全审计</p>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Flask 3.1 · SQLite 3 · Burp Suite CE<br>
+    <strong>目标功能：</strong>个人中心 /profile + 充值 /recharge &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-10
+  </div>
+  <div class="hero-scroll">↓ 向下滚动</div>
+</header>
+
+<main class="container">
+
+<section id="overview" class="section">
+  <div class="section-header"><h2>一、实验概述</h2><p>Experiment Overview</p></div>
+
+  <h3>1.1 实验目的</h3>
+  <ol>
+    <li>理解<strong>业务逻辑漏洞</strong>的产生原理与攻击手法</li>
+    <li>理解<strong>IDOR 越权访问</strong>的产生原理与攻击手法</li>
+    <li>掌握使用 Burp Suite 进行业务逻辑漏洞测试的方法</li>
+    <li>学会识别不安全的业务实现中的 8 类典型逻辑漏洞</li>
+    <li>掌握业务逻辑安全的<strong>服务端校验原则</strong>与<strong>权限校验模型</strong></li>
+  </ol>
+
+  <div class="summary-stats">
+    <div class="stat-card stat-danger"><div class="stat-num">8</div><div class="stat-label">发现漏洞</div></div>
+    <div class="stat-card"><div class="stat-num">8</div><div class="stat-label">已修复</div></div>
+    <div class="stat-card stat-danger"><div class="stat-num">4严重</div><div class="stat-label">最高等级</div></div>
+    <div class="stat-card stat-warn"><div class="stat-num">6种</div><div class="stat-label">安全机制</div></div>
+  </div>
+
+  <h3>1.2 攻击面总览</h3>
+  <div class="arch-box">
+漏洞类别                    发现数量    风险等级
+─────────────────────────────────────────────────
+IDOR 越权访问（水平越权）        2         严重 x2
+业务逻辑缺陷（负值/超额充值）    2         高危 x2
+SQL 注入（profile 和 recharge）  2         严重 x2
+CSRF 跨站请求                    1         中危
+重放攻击/重复提交                1         中危
+─────────────────────────────────────────────────
+总计                             8    4严重+2高危+2中危
+  </div>
+
+  <h3>1.3 新增功能模块</h3>
+  <div class="arch-box">
+新增功能模块
+┌─────────────────────────────────────────────────────────┐
+│                  /profile（个人中心）                      │
+│  ├─ 功能：根据 user_id 查询用户资料（邮箱、手机、余额）    │
+│  ├─ 故意漏洞：从 URL 参数获取 user_id，不验证归属          │
+│  └─ 故意漏洞：SQL 使用 f-string 拼接                       │
+├─────────────────────────────────────────────────────────┤
+│                  /recharge（充值）                          │
+│  ├─ 功能：根据 user_id 和 amount 修改用户余额               │
+│  ├─ 故意漏洞：从表单参数获取 user_id，不验证归属              │
+│  ├─ 故意漏洞：amount 不做正负/上限校验                      │
+│  ├─ 故意漏洞：SQL 使用 f-string 拼接                        │
+│  └─ 故意漏洞：无 CSRF Token 校验                            │
+└─────────────────────────────────────────────────────────┘
+  </div>
+</section>
+
+<section id="vulns" class="section">
+  <div class="section-header"><h2>二、漏洞分析与修复</h2><p>Vulnerability Analysis &amp; Remediation</p></div>
+
+  <!-- V1 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">1</span><h3>IDOR 越权查看他人资料</h3><span class="tag tag-critical">严重 · CVSS 8.6</span></div>
+    <p><strong>CWE-639 · 个人中心 <code>GET /profile?user_id=N</code></strong></p>
+    <p><strong>问题：</strong><code>user_id</code> 从 URL 参数获取，用户修改 URL 即可访问任意用户的资料，无归属验证。</p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+      <pre>user_id = request.args.get("user_id", "")    # 从 URL 参数获取 — 用户可控！
+sql = f"SELECT ... FROM users WHERE id = {user_id}"
+c.execute(sql)</pre>
+    </div>
+    <p><strong>攻击复现：</strong>alice 登录后，修改 <code>?user_id=1</code> 即可查看 admin 的邮箱、手机、余额等信息。</p>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>request.args.get("user_id")</code> 用户可控</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>get_current_user_id()</code> 从 Session 获取</div>
+    </div>
+  </div>
+
+  <!-- V2 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">2</span><h3>IDOR 越权为他人充值</h3><span class="tag tag-critical">严重 · CVSS 9.0</span></div>
+    <p><strong>CWE-639 · 充值接口 <code>POST /recharge</code></strong></p>
+    <p><strong>问题：</strong>充值操作的 <code>user_id</code> 来自表单，攻击者可修改为其他用户 ID。</p>
+    <pre># alice 给 admin 充值
+curl -b /tmp/alice.txt -X POST http://target/recharge \
+  -d "user_id=1&amount=100"
+
+# 结合负值从 admin 账户扣钱
+curl -b /tmp/alice.txt -X POST http://target/recharge \
+  -d "user_id=1&amount=-10000"</pre>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>表单 user_id 不校验归属</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>与 Session ID 比对，不一致则 403</div>
+    </div>
+  </div>
+
+  <!-- V3 -->
+  <div class="vuln-card sev-high">
+    <div class="vuln-header"><span class="vuln-num">3</span><h3>负值金额充值</h3><span class="tag tag-high">高危 · CVSS 7.5</span></div>
+    <p><strong>CWE-841 · 充值接口 <code>POST /recharge</code></strong></p>
+    <p><strong>问题：</strong>未对 amount 做正负校验，<code>amount=-200</code> 可使余额减少。</p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">SQL 语义分析</span><button class="copy-btn">复制代码</button></div>
+      <pre>正常充值 amount=100:   UPDATE users SET balance = balance + 100    → 余额增加 100
+恶意充值 amount=-200:  UPDATE users SET balance = balance + (-200) → 余额减少 200</pre>
+    </div>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>输入 -200 余额减少</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>if amount &lt;= 0: reject</code></div>
+    </div>
+  </div>
+
+  <!-- V4 -->
+  <div class="vuln-card sev-high">
+    <div class="vuln-header"><span class="vuln-num">4</span><h3>超额充值</h3><span class="tag tag-high">高危 · CVSS 7.0</span></div>
+    <p><strong>无上限校验，输入极大值可暴增余额。</strong></p>
+    <pre># Alice 一次充值 999999 元
+curl -b /tmp/alice.txt -X POST http://target/recharge \
+  -d "user_id=2&amount=999999"
+# 余额变为 1000999</pre>
+    <div class="info-box"><strong>合理限制：</strong>单次充值上限（如10万元）· 单日累计上限（如50万元）· 账户余额上限 · 频率限制</div>
+  </div>
+
+  <!-- V5 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">5</span><h3>无上限重复充值</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>无防重放机制，可批量重复提交刷余额。</strong></p>
+    <pre>for i in {1..100}; do
+  curl -b /tmp/alice.txt -X POST http://target/recharge \
+    -d "user_id=2&amount=1000" &
+done
+# 余额增加 1000 × 100 = 100000</pre>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无防重放，可无限次提交</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>充值后刷新 CSRF Token，一次性使用</div>
+    </div>
+  </div>
+
+  <!-- V6 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">6</span><h3>SQL 注入（profile + recharge）</h3><span class="tag tag-critical">严重 · CVSS 9.8</span></div>
+    <p><strong>两处接口均使用 f-string 拼接 SQL。</strong></p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 两处 f-string 注入</span><button class="copy-btn">复制代码</button></div>
+      <pre># 个人中心 — SELECT 注入
+sql = f"SELECT ... FROM users WHERE id = {user_id}"
+
+# 充值 — UPDATE 注入
+sql = f"UPDATE users SET balance = balance + {amount} WHERE id = {user_id}"</pre>
+    </div>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span><code>f"WHERE id = {user_id}"</code></div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>"WHERE id = ?"</code> 参数化查询</div>
+    </div>
+  </div>
+
+  <!-- V7 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">7</span><h3>CSRF 跨站充值请求</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · 充值接口无 CSRF Token 校验</strong></p>
+    <div class="arch-box">
+攻击者构造恶意页面：
+&lt;form action="http://target/recharge" method="POST" style="display:none"&gt;
+  &lt;input name="user_id" value="1"&gt;
+  &lt;input name="amount" value="10000"&gt;
+&lt;/form&gt;
+&lt;script&gt;document.forms[0].submit()&lt;/script&gt;
+
+当已登录用户访问该页面 → 浏览器自动附带 Cookie → 余额被篡改
+    </div>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无 CSRF 校验</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>validate_csrf()</code> Token 校验</div>
+    </div>
+  </div>
+
+  <!-- V8 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">8</span><h3>重放攻击与重复提交</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CSRF Token 通过后未刷新，同一 Token 可反复使用。</strong></p>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>Token 可重复使用</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span><code>refresh_csrf()</code> 一次性 Token</div>
+    </div>
+  </div>
+</section>
+
+<section id="burp" class="section">
+  <div class="section-header"><h2>三、Burp Suite 攻击复现</h2><p>Attack Reproduction</p></div>
+
+  <h3>3.1 IDOR 越权查看</h3>
+  <div class="burp-panel">
+步骤1：以 alice 身份登录 → 点击「个人中心」<br>
+Burp 拦截到：GET /profile?user_id=2<br><br>
+步骤2：发送到 Repeater（Ctrl+R）<br>
+  user_id=1 → 查看 admin      <span class="hl">越权成功 → 返回管理员资料</span><br>
+  user_id=3 → 查看新注册用户    <span class="hl">越权成功 → 返回用户资料</span><br><br>
+步骤3：使用 Intruder 批量枚举<br>
+  GET /profile?user_id=§1§  →  Payload: Numbers 1-100 → 找出所有有效用户
+  </div>
+
+  <h3>3.2 负值充值测试</h3>
+  <div class="burp-panel">
+拦截充值请求：<br>
+POST /recharge HTTP/1.1<br>
+user_id=2&amount=100<br>
+              ↓ 修改为<br>
+<span class="hl">user_id=2&amount=-99999</span><br><br>
+充值前余额：100 → 充值后余额：-99899（负值充值成功！）
+  </div>
+
+  <h3>3.3 测试结果汇总</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>测试项目</th><th>请求内容</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td>IDOR 越权查看</td><td><code>?user_id=1</code>（alice登录）</td><td>返回admin资料</td><td>只返回本人</td></tr>
+        <tr><td>IDOR 越权充值</td><td>修改 <code>user_id=1</code></td><td>admin余额增加</td><td>403拒绝</td></tr>
+        <tr><td>负值充值</td><td><code>amount=-500</code></td><td>余额减少</td><td>金额必须＞0</td></tr>
+        <tr><td>超额充值</td><td><code>amount=999999</code></td><td>余额暴增</td><td>超上限拒绝</td></tr>
+        <tr><td>重复充值</td><td>同请求×100次</td><td>增加100次</td><td>Token刷新</td></tr>
+        <tr><td>SQL注入profile</td><td><code>?user_id=1 UNION...</code></td><td>注入成功</td><td>参数化拦截</td></tr>
+        <tr><td>CSRF充值</td><td>跨站POST无Token</td><td>充值成功</td><td>403拒绝</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="fix" class="section">
+  <div class="section-header"><h2>四、业务逻辑漏洞防护方案</h2><p>Security Hardening</p></div>
+
+  <h3>4.1 权限校验五层模型</h3>
+  <div class="arch-box">
+              客户端请求
+                  │
+                  ▼
+    ┌─────────────────────────┐
+    │ 1. 身份认证             │  ← @login_required
+    │    （是否已登录？）      │
+    └────────┬────────────────┘
+             │
+    ┌────────▼────────────────┐
+    │ 2. 对象归属验证          │  ← 从 Session 获取，不从参数获取
+    │    （水平越权防护）      │     防止 IDOR 越权
+    └────────┬────────────────┘
+             │
+    ┌────────▼────────────────┐
+    │ 3. 业务参数校验          │  ← amount > 0, amount < 上限
+    │    （逻辑漏洞防护）      │     防止负值/超额
+    └────────┬────────────────┘
+             │
+    ┌────────▼────────────────┐
+    │ 4. CSRF Token 校验      │  ← validate_csrf()
+    │    （跨站防护）          │     防止跨站伪造
+    └────────┬────────────────┘
+             │
+    ┌────────▼────────────────┐
+    │ 5. 防重放                │  ← refresh_csrf()
+    │    （重复提交防护）      │     一次性 Token
+    └────────┬────────────────┘
+             │
+             ▼
+        正常执行业务逻辑
+  </div>
+
+  <h3>4.2 核心修复代码</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">Python — 完整修复</span><button class="copy-btn">复制代码</button></div>
+    <pre>@app.route("/profile")
+@login_required
+def profile():
+    current_user_id = get_current_user_id()  # 从 Session 获取
+    if current_user_id is not None:
+        c.execute(
+            "SELECT id, username, email, phone, balance FROM users WHERE id = ?",
+            (current_user_id,),
+        )
+        row = c.fetchone()
+    return render_template("profile.html", user=user_data, csrf_token=..., error=error)
+
+
+@app.route("/recharge", methods=["POST"])
+@login_required
+def recharge():
+    # 1. CSRF 校验
+    if not validate_csrf():
+        abort(403, "CSRF 验证失败")
+
+    # 2. IDOR 校验：只能操作自己的账户
+    current_id = get_current_user_id()
+    if not current_id or str(current_id) != str(user_id):
+        abort(403, "无权操作其他用户的账户")
+
+    # 3. 金额正数校验
+    if amount &lt;= 0:
+        return redirect("/profile?error=充值金额必须大于0")
+
+    # 4. 金额上限校验
+    if amount > 100000:
+        return redirect("/profile?error=单次充值金额不能超过10万元")
+
+    # 5. 参数化查询
+    c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+
+    # 6. 刷新 CSRF Token（防重放）
+    refresh_csrf()
+    return redirect("/profile")</pre>
+  </div>
+
+  <h3>4.3 修复前后对比</h3>
+  <div class="table-wrapper">
+    <table class="compare-table">
+      <thead><tr><th>检查项</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td><strong>user_id 来源</strong></td><td>URL/表单参数（用户可控）</td><td>Session 获取（用户不可控）</td></tr>
+        <tr><td><strong>权限校验</strong></td><td>无</td><td>比对 Session ID</td></tr>
+        <tr><td><strong>金额正数校验</strong></td><td>无</td><td><code>amount &lt;= 0</code> 拒绝</td></tr>
+        <tr><td><strong>金额上限校验</strong></td><td>无</td><td><code>amount &gt; 100000</code> 拒绝</td></tr>
+        <tr><td><strong>SQL 构建</strong></td><td><code>f"... WHERE id = {user_id}"</code></td><td><code>"... WHERE id = ?"</code> 参数化</td></tr>
+        <tr><td><strong>CSRF 校验</strong></td><td>无</td><td><code>validate_csrf()</code></td></tr>
+        <tr><td><strong>防重放</strong></td><td>无</td><td><code>refresh_csrf()</code> 一次性 Token</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="summary" class="section">
+  <div class="section-header"><h2>五、总结与反思</h2><p>Summary &amp; Reflections</p></div>
+
+  <h3>5.1 三大铁律</h3>
+  <div class="arch-box">
+铁律1：永远从 Session 获取当前用户身份，不信任客户端参数
+铁律2：所有业务参数必须在服务端做范围校验（正/负、上限/下限）
+铁律3：幂等操作必须防重放（一次性 Token + 唯一请求标识）
+  </div>
+
+  <h3>5.2 IDOR 三种防御层次</h3>
+  <div class="arch-box">
+最佳方案：完全避免从客户端获取对象标识符 → 从 Session 推导用户身份
+
+次优方案：验证对象归属 → 比较参数中的 ID 是否与当前用户匹配
+
+兜底方案：使用不可预测的标识符 → UUID 替代自增 ID（但不能替代归属验证）
+  </div>
+
+  <h3>5.3 8个漏洞回顾</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>#</th><th>漏洞</th><th>路由</th><th>严重</th><th>攻击方式</th><th>修复关键</th></tr></thead>
+      <tbody>
+        <tr><td>V1</td><td>IDOR 越权查看</td><td><code>/profile</code></td><td><span class="tag tag-critical">严重</span></td><td>修改 <code>?user_id=N</code></td><td>从 Session 获取 ID</td></tr>
+        <tr><td>V2</td><td>IDOR 越权充值</td><td><code>/recharge</code></td><td><span class="tag tag-critical">严重</span></td><td>修改表单 user_id</td><td>比对 Session ID</td></tr>
+        <tr><td>V3</td><td>负值充值</td><td><code>/recharge</code></td><td><span class="tag tag-high">高危</span></td><td>输入负金额</td><td><code>amount &lt;= 0</code></td></tr>
+        <tr><td>V4</td><td>超额充值</td><td><code>/recharge</code></td><td><span class="tag tag-high">高危</span></td><td>输入极大金额</td><td><code>amount &gt; 100000</code></td></tr>
+        <tr><td>V5</td><td>重复提交</td><td><code>/recharge</code></td><td><span class="tag tag-medium">中危</span></td><td>重复发送请求</td><td>刷新 CSRF Token</td></tr>
+        <tr><td>V6</td><td>SQL 注入</td><td>两处接口</td><td><span class="tag tag-critical">严重</span></td><td>注入 payload</td><td>参数化查询</td></tr>
+        <tr><td>V7</td><td>CSRF 跨站</td><td><code>/recharge</code></td><td><span class="tag tag-medium">中危</span></td><td>跨站提交表单</td><td><code>validate_csrf()</code></td></tr>
+        <tr><td>V8</td><td>重放攻击</td><td><code>/recharge</code></td><td><span class="tag tag-medium">中危</span></td><td>多次发送拦截请求</td><td>一次性 Token</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <blockquote>
+    <p><strong>业务逻辑漏洞是所有安全漏洞中最"人性化"的一种。</strong></p>
+    <p>它不是因程序员忘了加过滤，而是因程序员<strong>默认用户会按规矩操作</strong>。但安全开发的核心思维恰恰是：<strong>永远假设用户会尝试做任何你能想象到的坏事。</strong></p>
+  </blockquote>
+
+  <h3>5.4 后续学习方向</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>方向</th><th>说明</th><th>难度</th></tr></thead>
+      <tbody>
+        <tr><td>竞争条件</td><td>并发请求导致数据不一致（如重复提现）</td><td>进阶</td></tr>
+        <tr><td>JWT 安全</td><td>Token 伪造和签名算法混淆</td><td>进阶</td></tr>
+        <tr><td>OAuth 2.0 安全</td><td>授权码劫持、CSRF、重定向 URI 篡改</td><td>高阶</td></tr>
+        <tr><td>支付逻辑</td><td>金额篡改、数量篡改、订单替换</td><td>高阶</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>5.5 安全检查清单</h3>
+  <div class="arch-box">
+认证与会话管理：
+[ ] 敏感操作是否从 Session 获取用户身份，而非客户端参数？
+[ ] 是否验证了操作对象属于当前用户？
+[ ] Session 是否配置了 HttpOnly + SameSite？
+
+业务参数校验：
+[ ] 金额、数量等数值是否做了正数校验？
+[ ] 是否设置了合理的上限和下限？
+[ ] 是否校验了数据类型？
+[ ] 是否校验了前端没有限制的参数？
+
+防篡改与防重放：
+[ ] 关键业务操作是否有 CSRF 防护？
+[ ] CSRF Token 是否一次性使用？
+[ ] 是否有操作频率限制？
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-header"><h2>参考资料</h2><p>References</p></div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th style="width:6%">#</th><th>资料名称</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>OWASP — Business Logic Vulnerabilities</td><td><a href="https://owasp.org/www-community/vulnerabilities/Business_logic_vulnerability" target="_blank">owasp.org</a></td></tr>
+        <tr><td>2</td><td>OWASP — IDOR Prevention Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+        <tr><td>3</td><td>CWE-639: Authorization Bypass</td><td><a href="https://cwe.mitre.org/data/definitions/639.html" target="_blank">cwe.mitre.org</a></td></tr>
+        <tr><td>4</td><td>PortSwigger — Business Logic Vulnerabilities</td><td><a href="https://portswigger.net/web-security/logic-flaws" target="_blank">portswigger.net</a></td></tr>
+        <tr><td>5</td><td>PortSwigger — IDOR</td><td><a href="https://portswigger.net/web-security/access-control/idor" target="_blank">portswigger.net</a></td></tr>
+        <tr><td>6</td><td>OWASP Top 10 — A01 Broken Access Control</td><td><a href="https://owasp.org/Top10/A01_2021-Broken_Access_Control/" target="_blank">owasp.org</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p><strong>报告人：</strong>________________ &nbsp;|&nbsp; <strong>指导教师：</strong>________________</p>
+    <p><strong>报告日期：</strong>2026-07-10 &nbsp;|&nbsp; <strong>靶机地址：</strong>http://192.168.14.129:5000</p>
+    <p><strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:.8rem;font-size:.72rem;color:rgba(255,230,180,0.25);">🏦 业务逻辑漏洞与越权分析报告 &copy; 2026</p>
+  </div>
+</footer>
+
+<button class="back-to-top">↑</button>
+<script src="js/main.js"></script>
+</body>
+</html>
