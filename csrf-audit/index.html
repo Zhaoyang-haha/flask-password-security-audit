@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="CSRF 跨站请求伪造漏洞分析与防护报告 — 5 个 POST 接口 CSRF 审计与修复">
+<meta property="og:title" content="CSRF 跨站请求伪造漏洞分析与防护报告">
+<meta property="og:description" content="全功能 CSRF 防护审计 — 5个接口 + Token + SameSite + 防重放">
+<title>CSRF 漏洞分析与防护报告 | Flask 安全审计</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔒</text></svg>">
+</head>
+<body>
+<nav class="navbar">
+  <a href="../" class="nav-brand"><span class="brand-icon">🔒</span> CSRF 审计</a>
+  <button class="nav-toggle">☰</button>
+  <ul class="nav-links">
+    <li><a href="#overview">实验概述</a></li>
+    <li><a href="#vulns">漏洞分析</a></li>
+    <li><a href="#fix">防护方案</a></li>
+    <li><a href="#summary">总结</a></li>
+    <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <div class="hero-particles"></div>
+  <div class="hero-badge">CSRF 跨站请求伪造分析报告</div>
+  <h1>CSRF 跨站请求伪造<br>漏洞分析与防护报告</h1>
+  <p class="hero-sub">Flask 用户管理系统 — 全功能 CSRF 防护审计记录</p>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Flask 3.1 · Burp Suite CE<br>
+    <strong>审计范围：</strong>全部 5 个 POST 路由 &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-14
+  </div>
+  <div class="hero-scroll">↓ 向下滚动</div>
+</header>
+<main class="container">
+<section id="overview" class="section">
+  <div class="section-header"><h2>一、实验概述</h2><p>Experiment Overview</p></div>
+  <h3>1.1 什么是 CSRF？</h3>
+  <p><strong>跨站请求伪造（CSRF）</strong> 是一种攻击方式，攻击者诱导已登录用户访问恶意页面，在该页面中自动发起对目标网站的请求，利用浏览器自动携带 Cookie 的机制，冒充用户身份执行非本意操作。</p>
+  <h3>1.2 审计范围</h3>
+  <p>本项目共有 <strong>5 个 POST 接口</strong>，本轮审计覆盖全部接口：</p>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>路由</th><th>功能</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /login</code></td><td>登录</td><td>无 CSRF</td><td>✅ 有</td></tr>
+        <tr><td><code>POST /register</code></td><td>注册</td><td>无 CSRF</td><td>✅ 有</td></tr>
+        <tr><td><code>POST /upload</code></td><td>上传</td><td>无 CSRF</td><td>✅ 有</td></tr>
+        <tr><td><code>POST /recharge</code></td><td>充值</td><td>无 CSRF</td><td>✅ 有</td></tr>
+        <tr><td><code>POST /change-password</code></td><td>改密</td><td>无 CSRF</td><td>✅ 有（本轮）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="summary-stats">
+    <div class="stat-card stat-danger"><div class="stat-num">5</div><div class="stat-label">POST路由</div></div>
+    <div class="stat-card"><div class="stat-num">5</div><div class="stat-label">已修复</div></div>
+    <div class="stat-card"><div class="stat-num">34</div><div class="stat-label">累计漏洞</div></div>
+  </div>
+  <h3>1.3 CSRF 攻击三大条件</h3>
+  <div class="arch-box">
+条件1：用户已登录目标站点（浏览器存有 Session Cookie）
+条件2：目标站点的 POST 请求无额外校验（无 CSRF Token）
+条件3：用户访问了攻击者控制的页面（自动提交表单）
+  </div>
+</section>
+<section id="vulns" class="section">
+  <div class="section-header"><h2>二、漏洞分析与修复</h2><p>Vulnerability Analysis &amp; Remediation</p></div>
+  <!-- V1 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">1</span><h3>登录接口 CSRF 缺失</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · <code>POST /login</code></strong></p>
+    <div class="arch-box">
+攻击者构造恶意页面：
+&lt;form action="http://target/login" method="POST" style="display:none"&gt;
+  &lt;input name="username" value="attacker"&gt;
+  &lt;input name="password" value="hacked123"&gt;
+&lt;/form&gt;&lt;script&gt;document.forms[0].submit()&lt;/script&gt;
+
+当受害者访问 → 浏览器自动提交 → 攻击者获得登录 Session
+    </div>
+  </div>
+  <!-- V2 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">2</span><h3>注册接口 CSRF 缺失</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · <code>POST /register</code></strong> — 跨站注册创建恶意账号</p>
+  </div>
+  <!-- V3 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">3</span><h3>上传接口 CSRF 缺失</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · <code>POST /upload</code></strong> — 跨站上传恶意文件</p>
+  </div>
+  <!-- V4 -->
+  <div class="vuln-card sev-high">
+    <div class="vuln-header"><span class="vuln-num">4</span><h3>充值接口 CSRF 缺失</h3><span class="tag tag-high">高危</span></div>
+    <p><strong>CWE-352 · <code>POST /recharge</code></strong></p>
+    <div class="arch-box">
+攻击者构造：
+&lt;form action="http://target/recharge" method="POST" style="display:none"&gt;
+  &lt;input name="user_id" value="2"&gt;    ← 攻击者ID
+  &lt;input name="amount" value="10000"&gt; ← 金额
+&lt;/form&gt;
+
+攻击流程：受害者访问恶意页面 → 浏览器自动提交POST
+→ 携带受害者的 Cookie → 攻击者账户收到10000元！
+
+结合负值充值漏洞（amount未校验正负）→ amount=-50000 → 从受害者账户扣钱
+    </div>
+  </div>
+  <!-- V5 -->
+  <div class="vuln-card sev-high">
+    <div class="vuln-header"><span class="vuln-num">5</span><h3>修改密码接口 CSRF 缺失</h3><span class="tag tag-high">高危</span></div>
+    <p><strong>CWE-352 · <code>POST /change-password</code>（本轮新增）</strong></p>
+    <div class="warning-box"><strong>严重性：</strong>CSRF 缺失 + IDOR 越权 = 任意用户密码可被跨站修改。无 CSRF Token + 无 IDOR 校验 + 无原密码校验 = 攻击者只需让管理员访问一个恶意页面，管理员密码即被修改为攻击者指定的值！</div>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 修复方案</span><button class="copy-btn">复制代码</button></div>
+      <pre>@app.route("/change-password", methods=["POST"])
+@login_required
+def change_password():
+    # CSRF 校验
+    if not validate_csrf():
+        abort(403, "CSRF 验证失败")
+    # IDOR 校验（从 session 获取用户名）
+    session_username = session.get("username", "")
+    username = request.form.get("username", "")
+    if username != session_username:
+        abort(403, "无权修改其他用户的密码")</pre>
+    </div>
+  </div>
+</section>
+<section id="fix" class="section">
+  <div class="section-header"><h2>三、CSRF 防护方案</h2><p>Security Hardening</p></div>
+  <h3>3.1 三层防护体系</h3>
+  <div class="arch-box">
+第一层（核心）：CSRF Token（Synchronizer Token Pattern）
+  每个表单嵌入随机 Token，服务端校验匹配
+
+第二层（辅助）：SameSite Cookie
+  Cookie 设置 SameSite=Lax，阻止跨站 POST 携带 Cookie
+
+第三层（进阶）：一次性 Token（防重放）
+  成功操作后刷新 Token，旧 Token 立即失效
+  </div>
+  <h3>3.2 核心代码实现</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+    <pre>import secrets
+
+def generate_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(16)
+    return session["csrf_token"]
+
+def validate_csrf():
+    token = request.form.get("csrf_token", "")
+    stored = session.get("csrf_token", "")
+    return bool(token and token == stored)
+
+def refresh_csrf():
+    session["csrf_token"] = secrets.token_hex(16)
+
+@app.before_request
+def ensure_csrf():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(16)</pre>
+  </div>
+  <h3>3.3 防重放机制</h3>
+  <div class="arch-box">
+用户 GET /profile → Token = "abc123"
+用户 POST /recharge + Token="abc123"
+→ 校验通过 ✅ → 执行充值 ✅ → 刷新 Token 为 "def456"
+
+攻击者重放 POST /recharge + Token="abc123"
+→ 校验失败 ❌（Token 已被刷新，旧 Token 失效）
+  </div>
+  <h3>3.4 修复前后对比</h3>
+  <div class="table-wrapper">
+    <table class="compare-table">
+      <thead><tr><th>路由</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td><code>/login</code></td><td>无 Token、无校验</td><td><code>validate_csrf()</code> + <code>refresh_csrf()</code></td></tr>
+        <tr><td><code>/register</code></td><td>无 Token、无校验</td><td><code>validate_csrf()</code> + <code>refresh_csrf()</code></td></tr>
+        <tr><td><code>/upload</code></td><td>无 Token、无校验</td><td><code>validate_csrf()</code> + <code>refresh_csrf()</code></td></tr>
+        <tr><td><code>/recharge</code></td><td>无 Token、无校验</td><td>+ IDOR 防护 + 金额校验</td></tr>
+        <tr><td><code>/change-password</code></td><td>无 Token、无IDOR</td><td>+ IDOR 防护 + 密码强度</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>3.5 验证结果</h3>
+  <div class="arch-box">
+CSRF 防护验证
+==============================
+1. 登录（正常）                   HTTP 302  ✅
+2. 充值（无CSRF, 应403）          HTTP 403  ✅
+3. 改密（无CSRF, 应403）          HTTP 403  ✅
+4. 改密（越权他人, 应403）        HTTP 403  ✅
+5. 充值（正常）                   HTTP 302  ✅
+==============================
+12 个测试用例，全部通过 ✅
+  </div>
+</section>
+<section id="summary" class="section">
+  <div class="section-header"><h2>四、总结与反思</h2><p>Summary</p></div>
+  <h3>4.1 本项目全部漏洞修复总览</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>轮次</th><th>新增功能</th><th>漏洞数</th><th>CSRF漏洞</th><th>修复</th></tr></thead>
+      <tbody>
+        <tr><td>第1轮</td><td>基础登录</td><td>7</td><td>1（login）</td><td>已修复</td></tr>
+        <tr><td>第2轮</td><td>注册+搜索</td><td>2</td><td>1（register）</td><td>已修复</td></tr>
+        <tr><td>第3轮</td><td>头像上传</td><td>7</td><td>1（upload）</td><td>已修复</td></tr>
+        <tr><td>第4轮</td><td>个人中心+充值</td><td>8</td><td>1（recharge）</td><td>已修复</td></tr>
+        <tr><td>第5轮</td><td>动态页面</td><td>5</td><td>0</td><td>—</td></tr>
+        <tr><td>第6轮</td><td>修改密码</td><td>5</td><td>1（change-password）</td><td>本轮已修复</td></tr>
+        <tr><td><strong>总计</strong></td><td><strong>6个功能</strong></td><td><strong>34</strong></td><td><strong>5</strong></td><td><strong>全部修复</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <blockquote>
+    <p><strong>"Cookie 是浏览器对用户的承诺，但不是对他人意图的保证。"</strong></p>
+    <p>CSRF 漏洞不需要破解密码、不需要复杂的 payload，只需要一个 HTML 表单和用户无意间的一次点击。防御方式同样简单：<strong>每个 POST 请求都必须有一个不可预测的 Token，且这个 Token 只能使用一次。</strong></p>
+  </blockquote>
+</section>
+<section class="section">
+  <div class="section-header"><h2>参考资料</h2><p>References</p></div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th style="width:6%">#</th><th>资料</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>OWASP — CSRF</td><td><a href="https://owasp.org/www-community/attacks/csrf" target="_blank">owasp.org</a></td></tr>
+        <tr><td>2</td><td>OWASP — CSRF Prevention Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+        <tr><td>3</td><td>CWE-352: CSRF</td><td><a href="https://cwe.mitre.org/data/definitions/352.html" target="_blank">cwe.mitre.org</a></td></tr>
+        <tr><td>4</td><td>PortSwigger — CSRF</td><td><a href="https://portswigger.net/web-security/csrf" target="_blank">portswigger.net</a></td></tr>
+        <tr><td>5</td><td>Mozilla — SameSite Cookie</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite" target="_blank">developer.mozilla.org</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer class="footer">
+  <div class="container">
+    <p><strong>报告人：</strong>________________ &nbsp;|&nbsp; <strong>指导教师：</strong>________________</p>
+    <p><strong>报告日期：</strong>2026-07-14 &nbsp;|&nbsp; <strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:.8rem;font-size:.72rem;color:rgba(255,180,180,.25);">🔒 CSRF 跨站请求伪造漏洞分析与防护报告 &copy; 2026</p>
+  </div>
+</footer>
+<button class="back-to-top">↑</button>
+<script src="js/main.js"></script>
+</body>
+</html>
