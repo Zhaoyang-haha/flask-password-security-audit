@@ -3,54 +3,255 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Flask 安全审计项目合集 — 6 份安全报告，涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF 等 34 个漏洞">
-<title>Flask 安全审计 | 项目合集</title>
+<meta name="description" content="Flask Web安全审计项目合集 — 郭昭阳 课程作业，涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF等34个漏洞的全流程安全审计">
+<title>Flask Web安全审计 | 郭昭阳 课程项目</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Noto Sans CJK SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:linear-gradient(135deg,#0b1a2e 0%,#1a3a5c 50%,#1e4d6e 100%);min-height:100vh;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem}
-.container{max-width:1000px;width:100%;text-align:center}
-h1{font-size:clamp(1.8rem,5vw,2.8rem);font-weight:800;letter-spacing:3px;margin-bottom:.5rem}
-.subtitle{font-size:1rem;color:rgba(255,255,255,0.6);margin-bottom:2rem;letter-spacing:1px}
-.desc{font-size:.85rem;color:rgba(255,255,255,0.5);margin-bottom:1.5rem;line-height:1.6}
-.desc strong{color:rgba(255,255,255,0.8)}
-.divider{width:60px;height:2px;background:rgba(255,255,255,0.2);margin:1.5rem auto}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin:2rem 0}
-@media(max-width:640px){.grid{grid-template-columns:1fr}}
-.card{background:rgba(255,255,255,0.06);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:2rem 1.5rem;text-align:center;transition:all .3s ease;cursor:pointer;text-decoration:none;color:#fff}
-.card:hover{background:rgba(255,255,255,0.1);transform:translateY(-6px);box-shadow:0 12px 40px rgba(0,0,0,0.3)}
-.card-icon{font-size:3rem;margin-bottom:1rem}
-.card h2{font-size:1.2rem;margin-bottom:.5rem;font-weight:700}
-.card p{font-size:.82rem;color:rgba(255,255,255,0.65);line-height:1.6}
-.card .meta{display:flex;justify-content:center;gap:.5rem;flex-wrap:wrap;margin-top:.8rem}
-.card .meta span{font-size:.68rem;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7)}
-.card .meta .critical{background:rgba(197,34,31,0.3);color:#ff6b6b}
-.footer-text{margin-top:2rem;font-size:.8rem;color:rgba(255,255,255,0.35);line-height:1.8}
-.footer-text a{color:rgba(255,255,255,0.5)}
-.badge{display:inline-block;background:rgba(255,255,255,0.08);border-radius:20px;padding:4px 16px;font-size:.72rem;color:rgba(255,255,255,0.6);margin-top:1rem}
+*{margin:0;padding:0;box-sizing:border-box;font-family:"Noto Sans CJK SC","Noto Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+html{scroll-behavior:smooth}
+body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-height:100vh;color:#fff}
+
+/* ===== Hero Section ===== */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;position:relative}
+.hero-glow{position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(26,115,232,0.08) 0%,transparent 70%);pointer-events:none}
+.badge-student{display:inline-block;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:30px;padding:6px 24px;font-size:.78rem;letter-spacing:3px;color:rgba(255,255,255,0.6);margin-bottom:1.8rem;z-index:1}
+.hero h1{font-size:clamp(2rem,5vw,3.2rem);font-weight:800;letter-spacing:2px;z-index:1;margin-bottom:.6rem;line-height:1.2}
+.hero h1 .highlight{background:linear-gradient(135deg,#4a9cf5,#7cb9ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero-sub{font-size:clamp(.95rem,2vw,1.2rem);color:rgba(255,255,255,0.55);z-index:1;margin-bottom:2.5rem;letter-spacing:1px}
+.hero-stats{display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;z-index:1;margin-bottom:.5rem}
+.hero-stat{text-align:center}
+.hero-stat .num{font-size:2.2rem;font-weight:800;color:#4a9cf5;line-height:1}
+.hero-stat .lbl{font-size:.72rem;color:rgba(255,255,255,0.45);letter-spacing:1px}
+.hero-divider{width:60px;height:2px;background:rgba(255,255,255,0.12);margin:2rem auto;z-index:1}
+.hero-meta{font-size:.82rem;color:rgba(255,255,255,0.35);z-index:1;line-height:1.8}
+.hero-meta strong{color:rgba(255,255,255,0.6)}
+.scroll-hint{position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);font-size:.7rem;color:rgba(255,255,255,0.25);animation:bounce 2s infinite;letter-spacing:2px}
+@keyframes bounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(8px)}}
+
+/* ===== Content ===== */
+.section{padding:3rem 0;max-width:1100px;margin:0 auto;padding-left:1.5rem;padding-right:1.5rem}
+.section-title{text-align:center;margin-bottom:2.5rem}
+.section-title h2{font-size:1.6rem;font-weight:700;color:#4a9cf5;margin-bottom:.3rem}
+.section-title p{font-size:.85rem;color:rgba(255,255,255,0.35);letter-spacing:1px}
+
+/* ===== Student Info Card ===== */
+.info-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:1.8rem 2rem;margin-bottom:2.5rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}
+.info-card .item{text-align:center}
+.info-card .item .label{font-size:.7rem;color:rgba(255,255,255,0.35);letter-spacing:1px;margin-bottom:.3rem}
+.info-card .item .value{font-size:.95rem;color:rgba(255,255,255,0.85);font-weight:600}
+
+/* ===== Report Cards Grid ===== */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.2rem;margin:1.5rem 0}
+.card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.5rem;text-decoration:none;color:#fff;transition:all .3s ease;position:relative;overflow:hidden}
+.card:hover{background:rgba(255,255,255,0.08);transform:translateY(-4px);border-color:rgba(74,156,245,0.3);box-shadow:0 12px 40px rgba(0,0,0,0.25)}
+.card .round{position:absolute;top:0;right:0;background:rgba(74,156,245,0.15);color:#4a9cf5;padding:4px 14px;font-size:.7rem;border-radius:0 14px 0 10px;font-weight:600}
+.card .icon{font-size:2.2rem;margin-bottom:.6rem}
+.card h3{font-size:1.05rem;font-weight:700;margin-bottom:.4rem}
+.card p{font-size:.8rem;color:rgba(255,255,255,0.55);line-height:1.6;margin-bottom:.8rem}
+.card .tags{display:flex;gap:.4rem;flex-wrap:wrap}
+.card .tags span{font-size:.65rem;padding:2px 10px;border-radius:10px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6)}
+.card .tags .critical{background:rgba(197,34,31,0.2);color:#ff6b6b}
+.card .tags .high{background:rgba(227,160,8,0.2);color:#f9c74f}
+.card .tags .medium{background:rgba(26,115,232,0.2);color:#7cb9ff}
+.card .badge-fix{position:absolute;bottom:1rem;right:1rem;font-size:.65rem;color:rgba(100,200,100,0.6)}
+
+/* ===== Timeline ===== */
+.timeline{position:relative;max-width:700px;margin:2rem auto;padding:0}
+.timeline::before{content:'';position:absolute;left:24px;top:0;bottom:0;width:2px;background:rgba(74,156,245,0.2)}
+.tl-item{position:relative;padding:1rem 0 1rem 60px}
+.tl-item::before{content:'';position:absolute;left:16px;top:1.3rem;width:18px;height:18px;border-radius:50%;background:#0d2b4a;border:3px solid #4a9cf5}
+.tl-item .tl-round{font-size:.7rem;color:#4a9cf5;font-weight:700}
+.tl-item h4{font-size:.95rem;margin-bottom:.2rem}
+.tl-item .tl-desc{font-size:.78rem;color:rgba(255,255,255,0.5);line-height:1.5}
+.tl-item .tl-badge{display:inline-block;font-size:.65rem;padding:1px 10px;border-radius:8px;background:rgba(100,200,100,0.12);color:rgba(100,200,100,0.7);margin-top:.3rem}
+
+/* ===== Distribution ===== */
+.dist-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem;margin:1.5rem 0}
+.dist-item{background:rgba(255,255,255,0.04);border-radius:10px;padding:.8rem;text-align:center}
+.dist-item .dt-num{font-size:1.3rem;font-weight:700;color:#4a9cf5}
+.dist-item .dt-label{font-size:.68rem;color:rgba(255,255,255,0.45);margin-top:.2rem}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:2.5rem 1.5rem;border-top:1px solid rgba(255,255,255,0.06);font-size:.8rem;color:rgba(255,255,255,0.3);line-height:2}
+.footer strong{color:rgba(255,255,255,0.6)}
+.footer a{color:rgba(255,255,255,0.4)}
+.footer .sep{color:rgba(255,255,255,0.15);margin:0 8px}
+
+@media(max-width:480px){
+  .grid{grid-template-columns:1fr}
+  .hero-stats{gap:1rem}
+  .info-card{grid-template-columns:1fr 1fr;gap:.8rem}
+}
 </style>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔒</text></svg>">
 </head>
 <body>
-<div class="container">
-<h1>🔒 Flask 安全审计项目</h1>
-<p class="subtitle">Security Audit Projects Portfolio</p>
-<p class="desc">6 轮迭代 · 6 个功能模块 · <strong>34 个安全漏洞（全部修复）</strong></p>
-<div class="divider"></div>
-<div class="grid">
-<a class="card" href="web-security-audit/"><div class="card-icon">🛡️</div><h2>Web 应用安全审计与加固</h2><p>SQL 注入、密码明文存储、CSRF、Cookie 安全等 <strong>8 个漏洞</strong>。</p><div class="meta"><span class="critical">2 严重</span><span>1 高危</span><span>5 中危</span><span>8/8</span></div></a>
-<a class="card" href="password-security-audit/"><div class="card-icon">🔒</div><h2>密码安全修复报告</h2><p>密码明文存储、弱 Secret Key、Debug 模式、爆破防护等 <strong>7 个漏洞</strong>。</p><div class="meta"><span class="critical">2 严重</span><span>2 高危</span><span>3 中危</span><span>7/7</span></div></a>
-<a class="card" href="file-upload-audit/"><div class="card-icon">📁</div><h2>文件上传漏洞分析与防护</h2><p>任意文件上传、路径穿越、XSS、CSRF 绕过、频率限制等 <strong>7 个漏洞</strong>。</p><div class="meta"><span class="critical">2 严重</span><span>2 高危</span><span>2 中危</span><span>7/7</span></div></a>
-<a class="card" href="business-logic-audit/"><div class="card-icon">🏦</div><h2>业务逻辑漏洞与越权分析</h2><p>IDOR 越权查看/充值、负值充值、超额充值、SQL 注入等 <strong>8 个漏洞</strong>。</p><div class="meta"><span class="critical">4 严重</span><span>2 高危</span><span>2 中危</span><span>8/8</span></div></a>
-<a class="card" href="file-inclusion-audit/"><div class="card-icon">📄</div><h2>文件包含漏洞分析与防护</h2><p>LFI、RFI、敏感信息泄露、XSS、未授权访问等 <strong>5 个漏洞</strong>。</p><div class="meta"><span class="critical">2 严重</span><span>1 高危</span><span>2 中危</span><span>5/5</span></div></a>
-<a class="card" href="csrf-audit/"><div class="card-icon">🔒</div><h2>CSRF 跨站请求伪造分析</h2><p>登录/注册/上传/充值/改密 5 个 POST 接口的 CSRF 防护审计，共 <strong>5 个漏洞</strong>。</p><div class="meta"><span class="critical">2 高危</span><span>3 中危</span><span>5/5</span></div></a>
-</div>
-<div class="badge">累计修复 34 个漏洞 · 覆盖 OWASP Top 10 六大类别</div>
-<div class="divider"></div>
-<div class="footer-text">
-<p><strong>实验环境：</strong>Kali Linux · Python Flask 3.1 · SQLite 3 · Burp Suite CE</p>
-<p><strong>GitHub：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
-<p style="margin-top:.5rem;">&copy; 2026 Zhaoyang-haha</p>
-</div>
-</div>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="badge-student">🎓 课 程 项 目 作 品</div>
+  <h1>Flask Web 应用<br><span class="highlight">安全审计与加固</span></h1>
+  <p class="hero-sub">从零开始构建 Flask 系统 · 6 轮迭代 · 完整安全审计流程</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="num">6</div><div class="lbl">审计轮次</div></div>
+    <div class="hero-stat"><div class="num">6</div><div class="lbl">功能模块</div></div>
+    <div class="hero-stat"><div class="num">34</div><div class="lbl">漏洞修复</div></div>
+    <div class="hero-stat"><div class="num">6类</div><div class="lbl">OWASP覆盖</div></div>
+  </div>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Python Flask 3.1 · SQLite 3 · Burp Suite CE<br>
+    <strong>项目地址：</strong>http://192.168.14.129:5000
+  </div>
+  <div class="scroll-hint">↓ 向下滚动浏览</div>
+</section>
+
+<!-- ===== Student Info ===== -->
+<section class="section">
+  <div class="info-card">
+    <div class="item"><div class="label">姓 名</div><div class="value">郭昭阳</div></div>
+    <div class="item"><div class="label">GitHub</div><div class="value">Zhaoyang-haha</div></div>
+    <div class="item"><div class="label">项目名称</div><div class="value">Flask安全审计项目合集</div></div>
+    <div class="item"><div class="label">报告日期</div><div class="value">2026-07-14</div></div>
+  </div>
+</section>
+
+<!-- ===== Reports ===== -->
+<section class="section">
+  <div class="section-title"><h2>📋 安全审计报告</h2><p>Security Audit Reports</p></div>
+  <div class="grid">
+    <a class="card" href="web-security-audit/">
+      <span class="round">第2轮</span>
+      <div class="icon">🛡️</div>
+      <h3>Web 应用安全审计与加固</h3>
+      <p>注册 + 搜索功能安全审计。SQL 注入（2处）、密码明文存储、CSRF、Cookie 安全、未授权访问、输入校验等 <strong>8 个漏洞</strong>。</p>
+      <div class="tags"><span class="critical">2 严重</span><span class="high">1 高危</span><span class="medium">5 中危</span></div>
+    </a>
+    <a class="card" href="password-security-audit/">
+      <span class="round">第1轮</span>
+      <div class="icon">🔒</div>
+      <h3>密码安全修复报告</h3>
+      <p>基础登录功能密码安全专项审计。密码明文存储/比对、密码页面显示、HTML注释泄露、弱密钥、Debug模式、爆破防护等 <strong>7 个漏洞</strong>。</p>
+      <div class="tags"><span class="critical">2 严重</span><span class="high">2 高危</span><span class="medium">3 中危</span></div>
+    </a>
+    <a class="card" href="file-upload-audit/">
+      <span class="round">第3轮</span>
+      <div class="icon">📁</div>
+      <h3>文件上传漏洞分析与防护</h3>
+      <p>头像上传功能安全审计。任意文件上传、路径穿越、存储型XSS、文件覆盖、CSRF绕过、频率限制等 <strong>7 个漏洞</strong>。</p>
+      <div class="tags"><span class="critical">2 严重</span><span class="high">2 高危</span><span class="medium">2 中危</span></div>
+    </a>
+    <a class="card" href="business-logic-audit/">
+      <span class="round">第4轮</span>
+      <div class="icon">🏦</div>
+      <h3>业务逻辑漏洞与越权分析</h3>
+      <p>个人中心+充值功能安全审计。IDOR越权查看/充值、负值/超额充值、SQL注入、CSRF跨站充值、重放攻击等 <strong>8 个漏洞</strong>。</p>
+      <div class="tags"><span class="critical">4 严重</span><span class="high">2 高危</span><span class="medium">2 中危</span></div>
+    </a>
+    <a class="card" href="file-inclusion-audit/">
+      <span class="round">第5轮</span>
+      <div class="icon">📄</div>
+      <h3>文件包含漏洞分析与防护</h3>
+      <p>动态页面加载功能安全审计。本地/远程文件包含、路径遍历、敏感信息泄露、XSS内容渲染、未授权访问等 <strong>5 个漏洞</strong>。</p>
+      <div class="tags"><span class="critical">2 严重</span><span class="high">1 高危</span><span class="medium">2 中危</span></div>
+    </a>
+    <a class="card" href="csrf-audit/">
+      <span class="round">第6轮</span>
+      <div class="icon">🔒</div>
+      <h3>CSRF 跨站请求伪造分析</h3>
+      <p>全功能 CSRF 防护专项审计。覆盖全部 5 个 POST 接口：登录、注册、上传、充值、修改密码，共 <strong>5 个漏洞</strong>。</p>
+      <div class="tags"><span class="high">2 高危</span><span class="medium">3 中危</span></div>
+    </a>
+  </div>
+</section>
+
+<!-- ===== Development Timeline ===== -->
+<section class="section">
+  <div class="section-title"><h2>📅 开发与审计历程</h2><p>Development Timeline</p></div>
+  <div class="timeline">
+    <div class="tl-item">
+      <span class="tl-round">第 1 轮</span>
+      <h4>基础登录功能 + 密码安全审计</h4>
+      <div class="tl-desc">实现用户登录/登出、首页信息展示。审计发现 7 个密码安全相关漏洞：明文存储、明文比对、页面泄露、注释泄露、弱密钥、Debug模式、无爆破防护。</div>
+      <span class="tl-badge">✅ 7/7 漏洞已修复</span>
+    </div>
+    <div class="tl-item">
+      <span class="tl-round">第 2 轮</span>
+      <h4>注册 + 搜索功能 · Web 安全审计</h4>
+      <div class="tl-desc">新增用户注册、搜索功能。审计发现 2 处 SQL 注入（f-string拼接），同时修复密码明文、CSRF、Cookie安全等共 8 个漏洞。</div>
+      <span class="tl-badge">✅ 8/8 漏洞已修复</span>
+    </div>
+    <div class="tl-item">
+      <span class="tl-round">第 3 轮</span>
+      <h4>头像上传功能 · 文件上传审计</h4>
+      <div class="tl-desc">新增头像上传功能。审计发现 7 个漏洞：任意文件上传、路径穿越、文件覆盖、存储型XSS、频率限制缺失、CSRF绕过、大小限制不完整。</div>
+      <span class="tl-badge">✅ 7/7 漏洞已修复</span>
+    </div>
+    <div class="tl-item">
+      <span class="tl-round">第 4 轮</span>
+      <h4>个人中心 + 充值功能 · 业务逻辑审计</h4>
+      <div class="tl-desc">新增个人中心、充值功能。审计发现 8 个漏洞：IDOR越权查看/充值、负值/超额充值、SQL注入、CSRF跨站、重放攻击等。</div>
+      <span class="tl-badge">✅ 8/8 漏洞已修复</span>
+    </div>
+    <div class="tl-item">
+      <span class="tl-round">第 5 轮</span>
+      <h4>动态页面加载 · 文件包含审计</h4>
+      <div class="tl-desc">新增动态页面加载功能。审计发现 5 个漏洞：LFI路径遍历、RFI风险、敏感信息泄露、XSS内容渲染、未授权访问。</div>
+      <span class="tl-badge">✅ 5/5 漏洞已修复</span>
+    </div>
+    <div class="tl-item">
+      <span class="tl-round">第 6 轮</span>
+      <h4>修改密码功能 · CSRF 专项审计</h4>
+      <div class="tl-desc">新增修改密码功能。对全部 5 个 POST 接口进行 CSRF 专项审计，修复登录/注册/上传/充值/改密接口的 CSRF 漏洞。</div>
+      <span class="tl-badge">✅ 5/5 漏洞已修复</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Vulnerability Distribution ===== -->
+<section class="section">
+  <div class="section-title"><h2>📊 漏洞类型分布</h2><p>Vulnerability Distribution</p></div>
+  <div class="dist-grid">
+    <div class="dist-item"><div class="dt-num">4</div><div class="dt-label">SQL 注入</div></div>
+    <div class="dist-item"><div class="dt-num">3</div><div class="dt-label">文件包含/路径遍历</div></div>
+    <div class="dist-item"><div class="dt-num">3</div><div class="dt-label">文件上传类型缺失</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">IDOR 越权访问</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">业务逻辑缺陷</div></div>
+    <div class="dist-item"><div class="dt-num">5</div><div class="dt-label">CSRF 漏洞</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">密码明文/信息泄露</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">XSS 跨站脚本</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">未授权访问</div></div>
+    <div class="dist-item"><div class="dt-num">3</div><div class="dt-label">安全配置错误</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">重放/频率攻击</div></div>
+    <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">输入校验缺失</div></div>
+  </div>
+  <div style="text-align:center;margin-top:1rem"><span style="display:inline-block;background:rgba(74,156,245,0.1);border-radius:20px;padding:5px 20px;font-size:.78rem;color:rgba(255,255,255,0.5)">累计 34 个漏洞 · 全部修复完成</span></div>
+</section>
+
+<!-- ===== Tech Stack ===== -->
+<section class="section">
+  <div class="section-title"><h2>🛠 技术栈与工具</h2><p>Tech Stack &amp; Tools</p></div>
+  <div class="dist-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))">
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🐍</div><div class="dt-label">Python Flask</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🗄️</div><div class="dt-label">SQLite 3</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🔧</div><div class="dt-label">Werkzeug</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🕵️</div><div class="dt-label">Burp Suite CE</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🐧</div><div class="dt-label">Kali Linux</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">📝</div><div class="dt-label">Jinja2</div></div>
+    <div class="dist-item"><div class="dt-num" style="font-size:1.6rem">🔐</div><div class="dt-label">scrypt哈希</div></div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <div class="section">
+    <p><strong>郭昭阳</strong><span class="sep">|</span><strong>Zhaoyang-haha</strong></p>
+    <p>Flask Web 应用安全审计与加固项目合集</p>
+    <p><strong>实验环境：</strong>Kali Linux 2026.1 · Python Flask 3.1 · SQLite 3 · Burp Suite CE</p>
+    <p><strong>靶机地址：</strong>http://192.168.14.129:5000</p>
+    <p><strong>GitHub：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:1rem;font-size:.7rem">&copy; 2026 · 课程项目作品</p>
+  </div>
+</footer>
+
 </body>
 </html>
