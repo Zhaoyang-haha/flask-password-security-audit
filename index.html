@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Flask Web安全审计项目合集 — 郭昭阳 课程作业，涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF等34个漏洞的全流程安全审计">
+<meta name="description" content="Flask Web安全审计项目合集 — 郭昭阳 课程作业，涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF、SSRF等41个漏洞的全流程安全审计">
 <title>Flask Web安全审计 | 郭昭阳 课程项目</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:"Noto Sans CJK SC","Noto Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -90,12 +90,12 @@ body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-
   <div class="hero-glow"></div>
   <div class="badge-student">🎓 课 程 项 目 作 品</div>
   <h1>Flask Web 应用<br><span class="highlight">安全审计与加固</span></h1>
-  <p class="hero-sub">从零开始构建 Flask 系统 · 6 轮迭代 · 完整安全审计流程</p>
+  <p class="hero-sub">从零开始构建 Flask 系统 · 7 轮迭代 · 完整安全审计流程</p>
   <div class="hero-stats">
-    <div class="hero-stat"><div class="num">6</div><div class="lbl">审计轮次</div></div>
-    <div class="hero-stat"><div class="num">6</div><div class="lbl">功能模块</div></div>
-    <div class="hero-stat"><div class="num">34</div><div class="lbl">漏洞修复</div></div>
-    <div class="hero-stat"><div class="num">6类</div><div class="lbl">OWASP覆盖</div></div>
+    <div class="hero-stat"><div class="num">7</div><div class="lbl">审计轮次</div></div>
+    <div class="hero-stat"><div class="num">7</div><div class="lbl">功能模块</div></div>
+    <div class="hero-stat"><div class="num">41</div><div class="lbl">漏洞修复</div></div>
+    <div class="hero-stat"><div class="num">7类</div><div class="lbl">OWASP覆盖</div></div>
   </div>
   <div class="hero-divider"></div>
   <div class="hero-meta">
@@ -111,7 +111,7 @@ body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-
     <div class="item"><div class="label">姓 名</div><div class="value">郭昭阳</div></div>
     <div class="item"><div class="label">GitHub</div><div class="value">Zhaoyang-haha</div></div>
     <div class="item"><div class="label">项目名称</div><div class="value">Flask安全审计项目合集</div></div>
-    <div class="item"><div class="label">报告日期</div><div class="value">2026-07-14</div></div>
+    <div class="item"><div class="label">报告日期</div><div class="value">2026-07-15</div></div>
   </div>
 </section>
 
@@ -161,6 +161,13 @@ body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-
       <p>全功能 CSRF 防护专项审计。覆盖全部 5 个 POST 接口：登录、注册、上传、充值、修改密码，共 <strong>5 个漏洞</strong>。</p>
       <div class="tags"><span class="high">2 高危</span><span class="medium">3 中危</span></div>
     </a>
+    <a class="card" href="ssrf-audit/">
+      <span class="round">第7轮</span>
+      <div class="icon">📡</div>
+      <h3>SSRF 服务端请求伪造分析</h3>
+      <p>URL 抓取功能安全审计。任意协议 SSRF、内网 IP/段访问、域名解析绕过、CSRF 缺失等 <strong>7 个漏洞</strong>，六层纵深防御。</p>
+      <div class="tags"><span class="critical">4 严重</span><span class="medium">1 中危</span><span class="low">2 低危</span></div>
+    </a>
   </div>
 </section>
 
@@ -204,6 +211,12 @@ body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-
       <div class="tl-desc">新增修改密码功能。对全部 5 个 POST 接口进行 CSRF 专项审计，修复登录/注册/上传/充值/改密接口的 CSRF 漏洞。</div>
       <span class="tl-badge">✅ 5/5 漏洞已修复</span>
     </div>
+    <div class="tl-item">
+      <span class="tl-round">第 7 轮</span>
+      <h4>URL 抓取功能 · SSRF 审计</h4>
+      <div class="tl-desc">新增 URL 抓取功能，使用 urllib 抓取用户提交的 URL 内容。审计发现 7 个漏洞：file:// 协议读文件、内网 IP/段访问、域名解析绕过、CSRF 缺失等，实施六层纵深防御。</div>
+      <span class="tl-badge">✅ 7/7 漏洞已修复</span>
+    </div>
   </div>
 </section>
 
@@ -222,9 +235,10 @@ body{background:linear-gradient(135deg,#0a1628 0%,#0d2b4a 40%,#1a3f62 100%);min-
     <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">未授权访问</div></div>
     <div class="dist-item"><div class="dt-num">3</div><div class="dt-label">安全配置错误</div></div>
     <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">重放/频率攻击</div></div>
+    <div class="dist-item"><div class="dt-num">4</div><div class="dt-label">SSRF 漏洞</div></div>
     <div class="dist-item"><div class="dt-num">2</div><div class="dt-label">输入校验缺失</div></div>
   </div>
-  <div style="text-align:center;margin-top:1rem"><span style="display:inline-block;background:rgba(74,156,245,0.1);border-radius:20px;padding:5px 20px;font-size:.78rem;color:rgba(255,255,255,0.5)">累计 34 个漏洞 · 全部修复完成</span></div>
+  <div style="text-align:center;margin-top:1rem"><span style="display:inline-block;background:rgba(74,156,245,0.1);border-radius:20px;padding:5px 20px;font-size:.78rem;color:rgba(255,255,255,0.5)">累计 41 个漏洞 · 全部修复完成</span></div>
 </section>
 
 <!-- ===== Tech Stack ===== -->

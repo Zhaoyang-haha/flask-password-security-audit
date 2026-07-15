@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="SSRF 服务端请求伪造漏洞分析与防护实践报告 — 7 个漏洞分析与修复">
+<meta property="og:title" content="SSRF 服务端请求伪造漏洞分析与防护报告">
+<meta property="og:description" content="URL抓取功能安全审计 — 7个漏洞 + 六层纵深防御 + 41累计修复">
+<title>SSRF 漏洞分析与防护报告 | Flask 安全审计</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
+</head>
+<body>
+<nav class="navbar">
+  <a href="../" class="nav-brand"><span class="brand-icon">📡</span> SSRF 审计</a>
+  <button class="nav-toggle">☰</button>
+  <ul class="nav-links">
+    <li><a href="#overview">实验概述</a></li>
+    <li><a href="#vulns">漏洞分析</a></li>
+    <li><a href="#fix">防护方案</a></li>
+    <li><a href="#summary">总结</a></li>
+    <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <div class="hero-particles"></div>
+  <div class="hero-badge">SSRF 服 务 端 请 求 伪 造 分 析 报 告</div>
+  <h1>SSRF 服务端请求伪造<br>漏洞分析与防护报告</h1>
+  <p class="hero-sub">Flask 用户管理系统 — URL 抓取功能安全审计全记录</p>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Flask 3.1 · Python urllib<br>
+    <strong>目标功能：</strong>URL 抓取 POST /fetch-url &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-15
+  </div>
+  <div class="hero-scroll">↓ 向下滚动</div>
+</header>
+<main class="container">
+<section id="overview" class="section">
+  <div class="section-header"><h2>一、实验概述</h2><p>Experiment Overview</p></div>
+  <h3>1.1 什么是 SSRF？</h3>
+  <p><strong>SSRF（服务端请求伪造）</strong> 是一种攻击方式，攻击者利用服务端提供的 URL 访问功能，诱使服务端向内网或本地系统发起请求，从而访问或攻击本不应被外部访问的内部资源。</p>
+  <div class="arch-box">
+攻击者控制 URL 参数 → 目标服务器（Flask）
+  ├─ file:///etc/passwd     → 读取本地文件
+  ├─ http://127.0.0.1:5000  → 内网访问（本机服务）
+  ├─ http://192.168.1.1/    → 内网渗透
+  └─ http://169.254.169.254/→ 云元数据攻击
+  </div>
+  <h3>1.2 攻击面总览</h3>
+  <div class="summary-stats">
+    <div class="stat-card stat-danger"><div class="stat-num">7</div><div class="stat-label">发现漏洞</div></div>
+    <div class="stat-card"><div class="stat-num">7</div><div class="stat-label">已修复</div></div>
+    <div class="stat-card stat-danger"><div class="stat-num">4严重</div><div class="stat-label">最高等级</div></div>
+    <div class="stat-card"><div class="stat-num">41</div><div class="stat-label">累计修复</div></div>
+  </div>
+  <div class="arch-box">
+攻击面                          发现    风险等级
+────────────────────────────────────────────────
+任意协议 SSRF（file:// 读文件）    1      🔴严重
+内网 IP SSRF（127.0.0.1）         1      🔴严重
+内网段 SSRF（192.168.x.x）        1      🔴严重
+域名解析绕过（localhost）          1      🔴严重
+CSRF 缺失                         1      🔵中危
+URL 长度无限制                    1      🟢低危
+错误信息泄露                      1      🟢低危
+────────────────────────────────────────────────
+总计                              7   4严重+1中危+2低危
+  </div>
+</section>
+<section id="vulns" class="section">
+  <div class="section-header"><h2>二、漏洞分析与修复</h2><p>Vulnerability Analysis &amp; Remediation</p></div>
+  <!-- V1 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">1</span><h3>任意协议 SSRF（file:// 读取本地文件）</h3><span class="tag tag-critical">严重 · CVSS 9.0</span></div>
+    <p><strong>CWE-918 · 无协议限制，urllib 支持 file:// 等协议</strong></p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+      <pre>url = request.form.get("url", "")
+req = urllib.request.Request(url)          # 任何协议都接受
+response = urllib.request.urlopen(req)      # file:// 也能打开！</pre>
+    </div>
+    <p><strong>攻击复现：</strong><code>curl -X POST ... -d "url=file:///etc/passwd"</code> → 读取系统密码文件；还可读取 <code>app.py</code> 源码、<code>data/users.db</code> 数据库。</p>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ 修复前</span>无协议限制，支持 file://</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 修复后</span>仅允许 http:// 和 https://</div>
+    </div>
+  </div>
+  <!-- V2 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">2</span><h3>内网 IP SSRF（127.0.0.1 访问）</h3><span class="tag tag-critical">严重 · CVSS 8.6</span></div>
+    <p><strong>CWE-918 · 无内网 IP 拦截，可访问本机服务</strong></p>
+    <p><strong>攻击复现：</strong><code>curl ... -d "url=http://127.0.0.1:5000/"</code> → 访问本机 Flask 服务。攻击者可探测内网 Redis(6379)、MySQL(3306) 等敏感端口。</p>
+  </div>
+  <!-- V3 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">3</span><h3>内网段 SSRF（192.168.x.x / 10.x.x.x）</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong>无内网范围限制，可探测整个内网段</strong></p>
+    <pre>for ip in 192.168.14.{1..254}; do
+  for port in 22 80 443 3306 6379 8080; do
+    curl -X POST ... -d "url=http://$ip:$port/" &
+  done
+done</pre>
+    <p>攻击者可通过 SSRF 对内网进行横向移动，探测存活主机和开放端口。</p>
+  </div>
+  <!-- V4 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">4</span><h3>域名解析绕过 SSRF（localhost）</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong>仅字符串匹配 IP 无法防御域名绕过</strong></p>
+    <div class="arch-box">
+http://localhost/       → 127.0.0.1
+http://127.1/           → 127.0.0.1（简写）
+http://0x7f000001/      → 十六进制
+http://2130706433/      → 十进制
+http://0177.0.0.1/      → 八进制
+    </div>
+    <p><strong>修复：</strong>使用 <code>socket.gethostbyname()</code> 解析域名后检查真实 IP 是否为内网。</p>
+  </div>
+  <!-- V5 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">5</span><h3>无 CSRF 防护</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · URL 抓取接口无 CSRF Token 校验</strong></p>
+    <p>攻击者可构造 CSRF+SSRF 组合攻击：诱导管理员访问恶意页面 → 浏览器自动提交 POST 请求 → 服务端以管理员身份执行 SSRF。</p>
+  </div>
+</section>
+<section id="fix" class="section">
+  <div class="section-header"><h2>三、SSRF 防护方案</h2><p>Security Hardening</p></div>
+  <h3>3.1 六层纵深防御架构</h3>
+  <div class="arch-box">
+用户提交 URL
+  ↓ 第1关：CSRF Token 校验 → 403
+  ↓ 第2关：URL 长度限制（≤2048）
+  ↓ 第3关：协议白名单（仅 http/https）
+  ↓ 第4关：DNS 解析 + IP 黑白名单
+  ↓ 第5关：安全请求（timeout=10）
+  ↓ 第6关：统一错误信息
+  </div>
+  <h3>3.2 核心修复代码</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+    <pre>def is_internal_ip(hostname):
+    try:
+        ip = socket.gethostbyname(hostname)
+        if ip.startswith("127.") or ip.startswith("10."): return True
+        if ip.startswith("169.254."): return True
+        if ip.startswith("192.168."): return True
+        if ip == "0.0.0.0": return True
+        return False
+    except: return True
+
+@app.route("/fetch-url", methods=["POST"])
+@login_required
+def fetch_url():
+    if not validate_csrf(): abort(403)           # 第1关
+    url = request.form.get("url", "")
+    if len(url) > 2048: return error("URL过长")  # 第2关
+    if not url.startswith(("http://","https://")):  # 第3关
+        return error("不支持的协议")
+    parsed = urllib.parse.urlparse(url)
+    if is_internal_ip(parsed.hostname):           # 第4关
+        return error("不允许访问内网地址")
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            content = r.read().decode("utf-8", errors="replace")
+            result = {"status_code": r.getcode(), "content": content[:5000]}
+    except: error = "请求失败，请稍后重试"          # 第6关</pre>
+  </div>
+  <h3>3.3 绕过方式验证</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>绕过方式</th><th>URL</th><th>能否绕过</th></tr></thead>
+      <tbody>
+        <tr><td>标准内网</td><td><code>http://127.0.0.1:5000/</code></td><td>❌ DNS 解析后拦截</td></tr>
+        <tr><td>域名形式</td><td><code>http://localhost:5000/</code></td><td>❌ 解析后拦截</td></tr>
+        <tr><td>十进制 IP</td><td><code>http://2130706433/</code></td><td>❌ 解析后得 127.0.0.1</td></tr>
+        <tr><td>八进制 IP</td><td><code>http://0177.0.0.1/</code></td><td>❌ 解析后得 127.0.0.1</td></tr>
+        <tr><td>十六进制 IP</td><td><code>http://0x7f000001/</code></td><td>❌ 解析后得 127.0.0.1</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>3.4 修复前后对比</h3>
+  <div class="table-wrapper">
+    <table class="compare-table">
+      <thead><tr><th>防护项</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td>CSRF Token</td><td>无</td><td>validate_csrf()</td></tr>
+        <tr><td>URL 长度限制</td><td>无</td><td>≤2048</td></tr>
+        <tr><td>协议白名单</td><td>无（支持 file://）</td><td>仅 http/https</td></tr>
+        <tr><td>DNS 解析</td><td>无</td><td>socket.gethostbyname()</td></tr>
+        <tr><td>内网 IP 检测</td><td>无</td><td>5 段内网全部拦截</td></tr>
+        <tr><td>错误信息</td><td>原始异常</td><td>统一提示</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>3.5 验证结果</h3>
+  <div class="arch-box">
+1. 外部 URL 正常抓取               ✅ 状态码 200
+2. file:// 协议拦截             ✅ "不支持的 URL 协议"
+3. 127.0.0.1 内网拦截           ✅ "不允许访问内网地址"
+4. localhost 域名拦截            ✅ "不允许访问内网地址"
+5. 无 CSRF 请求                 ✅ HTTP 403
+  </div>
+</section>
+<section id="summary" class="section">
+  <div class="section-header"><h2>四、总结与项目汇总</h2><p>Summary &amp; Project Overview</p></div>
+  <h3>4.1 SSRF = 服务端的信任危机</h3>
+  <div class="arch-box">
+第1层：CSRF Token（防止 SSRF 被 CSRF 利用）
+第2层：URL 长度限制（防止资源耗尽）
+第3层：协议白名单（阻止 file:// 等危险协议）
+第4层：DNS 解析验证（防止域名绕过）
+第5层：IP 黑白名单（阻止内网地址）
+第6层：统一错误提示（防止信息泄露）
+  </div>
+  <h3>4.2 全部轮次修复统计</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>轮次</th><th>新增功能</th><th>漏洞</th></tr></thead>
+      <tbody>
+        <tr><td>第1轮</td><td>基础登录</td><td>7</td></tr>
+        <tr><td>第2轮</td><td>注册+搜索</td><td>2</td></tr>
+        <tr><td>第3轮</td><td>头像上传</td><td>7</td></tr>
+        <tr><td>第4轮</td><td>个人中心+充值</td><td>8</td></tr>
+        <tr><td>第5轮</td><td>动态页面</td><td>5</td></tr>
+        <tr><td>第6轮</td><td>修改密码</td><td>5</td></tr>
+        <tr><td><strong>第7轮</strong></td><td><strong>URL抓取(SSRF)</strong></td><td><strong>7</strong></td></tr>
+        <tr><td><strong>总计</strong></td><td><strong>7个功能</strong></td><td><strong>41</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>4.3 OWASP Top 10 覆盖</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>类别</th><th>漏洞</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>A01: Broken Access Control</td><td>IDOR 越权、未授权访问</td><td>✅</td></tr>
+        <tr><td>A03: Injection</td><td>SQL 注入、文件包含</td><td>✅</td></tr>
+        <tr><td>A04: Insecure Design</td><td>业务逻辑缺陷</td><td>✅</td></tr>
+        <tr><td>A05: Security Misconfiguration</td><td>Debug、Cookie</td><td>✅</td></tr>
+        <tr><td>A07: Identification Failures</td><td>密码明文、CSRF</td><td>✅</td></tr>
+        <tr><td>A08: Data Integrity Failures</td><td>文件上传类型校验</td><td>✅</td></tr>
+        <tr><td><strong>A10: SSRF</strong></td><td><strong>SSRF（本轮新增）</strong></td><td><strong>✅</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>4.4 最终安全配置</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>配置</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>SECRET_KEY</td><td>✅ os.urandom(32)</td></tr>
+        <tr><td>SESSION_COOKIE</td><td>✅ HttpOnly + SameSite=Lax</td></tr>
+        <tr><td>CSRF 防护</td><td>✅ 6 个 POST 全覆盖</td></tr>
+        <tr><td>SQL 注入防护</td><td>✅ 全部参数化查询</td></tr>
+        <tr><td>密码存储</td><td>✅ scrypt 哈希</td></tr>
+        <tr><td>文件上传校验</td><td>✅ 白名单 + 魔数</td></tr>
+        <tr><td>路径遍历防护</td><td>✅ 字符过滤+规范化</td></tr>
+        <tr><td><strong>SSRF 防护</strong></td><td><strong>✅ 协议白名单+DNS+IP黑白名单</strong></td></tr>
+        <tr><td>IDOR 越权防护</td><td>✅ Session 绑定</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <blockquote>
+    <p><strong>"SSRF 是服务端的'信任危机'——它利用的不是代码漏洞，而是内网与外网之间的信任边界。"</strong></p>
+    <p>经过 7 轮迭代、41 个漏洞的修复，本项目从一个几乎无防护的 Flask 登录系统，成长为一个具备全面安全防护能力的 Web 应用，覆盖 OWASP Top 10 中的 7 大类别。</p>
+  </blockquote>
+</section>
+<section class="section">
+  <div class="section-header"><h2>参考资料</h2><p>References</p></div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>#</th><th>资料</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>OWASP — SSRF</td><td><a href="https://owasp.org/www-community/attacks/Server_Side_Request_Forgery" target="_blank">owasp.org</a></td></tr>
+        <tr><td>2</td><td>OWASP — SSRF Prevention Cheat Sheet</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+        <tr><td>3</td><td>CWE-918: SSRF</td><td><a href="https://cwe.mitre.org/data/definitions/918.html" target="_blank">cwe.mitre.org</a></td></tr>
+        <tr><td>4</td><td>PortSwigger — SSRF</td><td><a href="https://portswigger.net/web-security/ssrf" target="_blank">portswigger.net</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer class="footer">
+  <div class="container">
+    <p><strong>报告人：</strong>郭昭阳 &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-15</p>
+    <p><strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:.8rem;font-size:.72rem;color:rgba(200,180,255,.25);">📡 SSRF 服务端请求伪造漏洞分析与防护报告 &copy; 2026</p>
+  </div>
+</footer>
+<button class="back-to-top">↑</button>
+<script src="js/main.js"></script>
+</body>
+</html>
