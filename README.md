@@ -11,11 +11,13 @@
 
 # 🔒 Flask Web 应用安全审计与加固
 
+### 四川大学 · 网络空间安全学院  
 ### 学生：郭昭阳（Zhaoyang-haha）
 
-📆 2026-07-17 &nbsp;|&nbsp; 🐧 Kali Linux + 🐍 Flask 3.1 + 🕵️ Burp Suite CE
+📆 2026-07-17 &nbsp;|&nbsp; 🐧 Kali Linux + 🐍 Flask 3.1 + 🕵️ Burp Suite CE  
+🎓 2025141531000 &nbsp;|&nbsp; 指导教师：陈腾
 
-[🌐 在线演示](https://zhaoyang-haha.github.io/flask-password-security-audit) &nbsp;|&nbsp; [📦 GitHub](https://github.com/Zhaoyang-haha/flask-password-security-audit)
+[🌐 安全报告展示](https://zhaoyang-haha.github.io/flask-password-security-audit) &nbsp;|&nbsp; [📦 GitHub](https://github.com/Zhaoyang-haha/flask-password-security-audit)
 
 **9 轮迭代 · 9 个功能模块 · 54 个安全漏洞（全部修复）**
 
@@ -25,7 +27,7 @@
 
 ## 📋 项目概述
 
-从零开始构建一个 Flask 用户管理系统，每轮新增功能后进行**完整的安全审计与加固**。涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF、SSRF、命令注入、XXE 九大安全类别。
+从零开始构建一个 Flask 用户管理系统，每轮新增功能后进行**完整的安全审计与加固**。涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF、SSRF、命令注入、XXE 九大安全类别。本项目的完整实习报告见：**[`郭昭阳_四川大学本科实习报告`](#)**。 
 
 | 轮次 | 新增功能 | 漏洞数 | 主要漏洞类型 |
 |:----:|---------|:------:|-------------|
