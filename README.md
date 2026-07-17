@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/status-completed-success" alt="Status">
   <img src="https://img.shields.io/badge/security-audit-blue" alt="Security Audit">
   <img src="https://img.shields.io/badge/student-Zhaoyang--haha-orange" alt="Student">
-  <img src="https://img.shields.io/badge/vulnerabilities-49-red" alt="49 Vulnerabilities">
+  <img src="https://img.shields.io/badge/vulnerabilities-54-red" alt="54 Vulnerabilities">
   <img src="https://img.shields.io/badge/flask-3.0+-blue?logo=flask" alt="Flask">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -13,11 +13,11 @@
 
 ### 学生：郭昭阳（Zhaoyang-haha）
 
-📆 2026-07-16 &nbsp;|&nbsp; 🐧 Kali Linux + 🐍 Flask 3.1 + 🕵️ Burp Suite CE
+📆 2026-07-17 &nbsp;|&nbsp; 🐧 Kali Linux + 🐍 Flask 3.1 + 🕵️ Burp Suite CE
 
 [🌐 在线演示](https://zhaoyang-haha.github.io/flask-password-security-audit) &nbsp;|&nbsp; [📦 GitHub](https://github.com/Zhaoyang-haha/flask-password-security-audit)
 
-**8 轮迭代 · 8 个功能模块 · 49 个安全漏洞（全部修复）**
+**9 轮迭代 · 9 个功能模块 · 54 个安全漏洞（全部修复）**
 
 </div>
 
@@ -25,7 +25,7 @@
 
 ## 📋 项目概述
 
-从零开始构建一个 Flask 用户管理系统，每轮新增功能后进行**完整的安全审计与加固**。涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF、SSRF、命令注入八大安全类别。
+从零开始构建一个 Flask 用户管理系统，每轮新增功能后进行**完整的安全审计与加固**。涵盖密码安全、SQL注入、文件上传、业务逻辑、文件包含、CSRF、SSRF、命令注入、XXE 九大安全类别。
 
 | 轮次 | 新增功能 | 漏洞数 | 主要漏洞类型 |
 |:----:|---------|:------:|-------------|
@@ -36,8 +36,9 @@
 | 第5轮 | 动态页面加载功能 | 5 | 文件包含、LFI、信息泄露 |
 | 第6轮 | 修改密码功能 | 5 | CSRF跨站请求伪造 |
 | 第7轮 | URL 抓取功能 | 7 | SSRF 服务端请求伪造 |
-| 第8轮 | Ping 网络诊断功能 | 8 | **命令注入（Command Injection）** |
-| **总计** | **8个功能模块** | **49** | **全部修复 ✅** |
+| 第8轮 | Ping 网络诊断功能 | 8 | 命令注入（Command Injection） |
+| 第9轮 | XML 数据导入功能 | 5 | **XXE 外部实体注入** |
+| **总计** | **9个功能模块** | **54** | **全部修复 ✅** |
 
 ---
 
@@ -53,6 +54,7 @@
 | 🔒 CSRF 跨站请求伪造分析 | [`csrf-audit/`](./csrf-audit/) |
 | 📡 SSRF 服务端请求伪造分析 | [`ssrf-audit/`](./ssrf-audit/) |
 | 💀 命令注入漏洞分析与防护 | [`cmd-audit/`](./cmd-audit/) |
+| 📄 XXE 外部实体注入分析与防护 | [`xxe-audit/`](./xxe-audit/) |
 
 ---
 
@@ -65,27 +67,28 @@
 | SQLite 3 | 数据库 |
 | Burp Suite CE | 安全测试（代理抓包/Repeater/Intruder） |
 | Kali Linux 2026.1 | 测试环境 |
-| Python subprocess | Ping 命令执行（命令注入功能） |
+| Python re | 正则提取（XXE 防御方案） |
 
 ---
 
 ## 📊 漏洞类型分布
 
 ```
-命令注入            6  ███████████████▏    12%
-CSRF 漏洞           5  █████████████▏      10%
-SQL 注入            4  ██████████▏          8%
-SSRF 漏洞           4  ██████████▏          8%
-文件包含/路径遍历    3  ████████▏           6%
-文件上传类型缺失     3  ████████▏           6%
+命令注入            6  ██████████████▏     11%
+CSRF 漏洞           5  ████████████▏        9%
+SQL 注入            4  █████████▏           7%
+SSRF 漏洞           4  █████████▏           7%
+XXE 漏洞            5  ████████████▏        9%
+文件包含/路径遍历    3  ███████▏            6%
+文件上传类型缺失     3  ███████▏            6%
 IDOR 越权访问       2  █████▏              4%
 业务逻辑缺陷        2  █████▏              4%
 密码/信息泄露        2  █████▏              4%
 XSS 跨站脚本        2  █████▏              4%
-安全配置错误        3  ████████▏           6%
-其他               10  ████████████████████▏ 20%
+安全配置错误        3  ███████▏            6%
+其他               10  ████████████████████▏ 19%
 ───────────────────────────────────────────────
-总计               49  100%
+总计               54  100%
 ```
 
 ---
